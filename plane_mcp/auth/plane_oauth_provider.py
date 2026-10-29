@@ -26,6 +26,7 @@ import os
 import time
 
 import httpx
+from authlib.integrations.httpx_client import AsyncOAuth2Client
 from fastmcp.server.auth import TokenVerifier
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.auth.oauth_proxy import OAuthProxy
@@ -38,6 +39,8 @@ from plane.models.users import UserLite
 from pydantic import AnyHttpUrl, BaseModel, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from starlette.requests import Request
+
+from plane_mcp.client import scope_extra_headers_hook
 
 logger = get_logger(__name__)
 
@@ -141,7 +144,9 @@ class PlaneOAuthTokenVerifier(TokenVerifier):
             user_url = f"{base_url}/api/v1/users/me/"
             logger.info(f"Verifying token against: {user_url}")
 
-            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, event_hooks={"request": [scope_extra_headers_hook]}
+            ) as client:
                 # Get current user info to verify token
                 response = await client.get(
                     user_url,
@@ -376,6 +381,13 @@ class PlaneOAuthProvider(OAuthProxy):
             settings.client_id,
             required_scopes_final,
         )
+
+    def _create_upstream_oauth_client(self) -> AsyncOAuth2Client:
+        """The token-exchange client, carrying PLANE_EXTRA_HEADERS like every other Plane call."""
+        # Upstream revocation is off here; enabling it would need the same headers (it builds its own client).
+        client = super()._create_upstream_oauth_client()
+        client.event_hooks["request"].append(scope_extra_headers_hook)
+        return client
 
     def _decode_list_cookie(self, request: Request, base_name: str) -> list[str]:
         """Ignore FastMCP's year-long denied-clients cookie so a Deny only applies to that attempt."""
