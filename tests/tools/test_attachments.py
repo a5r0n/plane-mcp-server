@@ -76,7 +76,9 @@ def attachment_tool(registered, spy, monkeypatch):
 
     def stub(name: str, content_type: str, payload: bytes = PNG):
         spy.returns["work_items.attachments.list"] = [_attachment(name, content_type)]
-        monkeypatch.setattr(module.requests, "get", lambda *a, **k: _Response(payload, {"Content-Type": content_type}))
+        monkeypatch.setattr(
+            module.PlaneSession, "get", lambda self, *a, **k: _Response(payload, {"Content-Type": content_type})
+        )
 
     return registered["workitem_attachment"].fn, spy, stub
 

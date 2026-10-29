@@ -2,14 +2,17 @@
 
 import json
 import os
+from collections.abc import MutableMapping
 from functools import cache
 from typing import Any, NamedTuple
+from urllib.parse import urlsplit
 
 import requests
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.utilities.logging import get_logger
 from plane import PlaneClient
+from plane.api.work_items import attachments as _sdk_attachments
 
 logger = get_logger(__name__)
 
@@ -57,11 +60,64 @@ def plane_extra_headers() -> dict[str, str]:
     return headers
 
 
-def _add_session_headers(client: PlaneClient, headers: dict[str, str]) -> None:
-    """Set `headers` on every requests session the SDK client owns.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
 
-    plane-sdk has no hook for extra headers, and gives each resource its own session.
-    Per-request headers (auth, Content-Type) still win over session defaults.
+
+def _origin(url: str) -> tuple[str, str, int | None] | None:
+    """(scheme, lowercased host, effective port), or None if `url` has no usable origin."""
+    try:
+        parts = urlsplit(url)
+        port = parts.port
+    except ValueError:
+        return None
+    scheme = parts.scheme.lower()
+    if not scheme or not parts.hostname:
+        return None
+    return scheme, parts.hostname, port or _DEFAULT_PORTS.get(scheme)
+
+
+def is_plane_origin(url: str) -> bool:
+    """Whether `url` is on the origin of PLANE_BASE_URL or PLANE_INTERNAL_BASE_URL."""
+    bases = (os.getenv("PLANE_BASE_URL") or "https://api.plane.so", os.getenv("PLANE_INTERNAL_BASE_URL"))
+    origin = _origin(url)
+    return origin is not None and origin in {_origin(base) for base in bases if base}
+
+
+def scope_extra_headers(url: str, headers: MutableMapping[str, str]) -> None:
+    """Add PLANE_EXTRA_HEADERS to `headers` if `url` is a Plane origin, else remove them."""
+    extra = plane_extra_headers()
+    if not extra:
+        return
+    if is_plane_origin(url):
+        headers.update(extra)
+    else:
+        for name in extra:
+            headers.pop(name, None)
+
+
+async def scope_extra_headers_hook(request) -> None:
+    """httpx request hook applying `scope_extra_headers`."""
+    scope_extra_headers(str(request.url), request.headers)
+
+
+class PlaneSession(requests.Session):
+    """A session that sends PLANE_EXTRA_HEADERS to Plane origins only, redirects included."""
+
+    def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
+        prepared = super().prepare_request(request)
+        scope_extra_headers(prepared.url, prepared.headers)
+        return prepared
+
+    def rebuild_auth(self, prepared_request: requests.PreparedRequest, response: requests.Response) -> None:
+        # requests strips only Authorization on a cross-host redirect; the extra headers need the same.
+        super().rebuild_auth(prepared_request, response)
+        scope_extra_headers(prepared_request.url, prepared_request.headers)
+
+
+def _use_plane_sessions(client: PlaneClient) -> None:
+    """Make every requests session the SDK client owns a PlaneSession.
+
+    plane-sdk has no hook for extra headers, and gives each resource its own plain session.
     """
     seen: set[int] = set()
     stack: list[Any] = [client]
@@ -70,10 +126,26 @@ def _add_session_headers(client: PlaneClient, headers: dict[str, str]) -> None:
         if id(obj) in seen:
             continue
         seen.add(id(obj))
-        if isinstance(obj, requests.Session):
-            obj.headers.update(headers)
+        if type(obj) is requests.Session:
+            obj.__class__ = PlaneSession
         elif type(obj).__module__.startswith("plane."):
             stack.extend(getattr(obj, "__dict__", {}).values())
+
+
+class _StorageRequests:
+    """`requests` for the SDK's presigned upload, posting through a PlaneSession."""
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(requests, name)
+
+    @staticmethod
+    def post(url: str, **kwargs: Any) -> requests.Response:
+        with PlaneSession() as session:
+            return session.post(url, **kwargs)
+
+
+# upload_from_bytes posts to storage with module-level requests.post, outside any session we can reach.
+_sdk_attachments._requests = _StorageRequests()
 
 
 class PlaneClientContext(NamedTuple):
@@ -157,8 +229,8 @@ def get_plane_client_context() -> PlaneClientContext:
             base_url=base_url,
             api_key=api_key,
         )
-    if extra := plane_extra_headers():
-        _add_session_headers(client, extra)
+    if plane_extra_headers():
+        _use_plane_sessions(client)
 
     return PlaneClientContext(
         client=client,

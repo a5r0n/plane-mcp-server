@@ -1,31 +1,36 @@
-"""PLANE_EXTRA_HEADERS: sent on every request to Plane, and on nothing else.
+"""PLANE_EXTRA_HEADERS: sent to the Plane origins, and to nothing else.
 
 Its use is an access gateway in front of Plane that admits the server by a pair of
-service-token headers. Missing one Plane call path means that call is refused at
-the gateway; adding the headers to a non-Plane request (a presigned storage URL, a
-user-supplied URL) hands the gateway secret to a third party. Both directions are
-tested against the wire -- the request the HTTP library would actually send.
+service-token headers. The rule is the destination's origin: PLANE_BASE_URL's or
+PLANE_INTERNAL_BASE_URL's gets them, redirect hops included; any other origin does
+not. Missing one gateway-bound call means it is refused at the gateway; sending them
+elsewhere (S3 storage, a redirect target) hands the gateway secret to a third party.
+upload_from_url never gets them, even to a Plane origin. Every case is tested against
+the wire -- the request the HTTP library would actually send.
 """
 
 from __future__ import annotations
 
 import asyncio
+import socket
 import time
 from types import SimpleNamespace
 
 import httpx
 import pytest
 import requests
+import urllib3
 from fastmcp.server.auth.auth import AccessToken
 from key_value.aio.stores.memory import MemoryStore
 
 import plane_mcp.client as client_module
 from plane_mcp.auth.plane_header_auth_provider import PlaneHeaderAuthProvider
 from plane_mcp.auth.plane_oauth_provider import PlaneOAuthProvider, PlaneOAuthTokenVerifier
-from plane_mcp.client import get_plane_client_context, plane_extra_headers
+from plane_mcp.client import get_plane_client_context, is_plane_origin, plane_extra_headers
 from plane_mcp.tools import workitem_attachment
 
 PLANE = "http://plane.test"
+STORAGE = "https://storage.example.com"
 SECRET = "s3cr3t-value"
 EXTRA = {"CF-Access-Client-Id": "id-123", "CF-Access-Client-Secret": SECRET}
 
@@ -64,6 +69,38 @@ def wire(monkeypatch):
 
     monkeypatch.setattr(requests.Session, "send", send)
     return sent
+
+
+@pytest.fixture
+def routed(monkeypatch):
+    """Every request that reaches the transport adapter, so requests' own redirect handling runs.
+
+    `routes` maps a URL to the Location it redirects to; anything else answers 200 `{}`.
+    """
+    sent: list[requests.PreparedRequest] = []
+    routes: dict[str, str] = {}
+
+    def send(self, request, **kwargs):
+        sent.append(request)
+        response = requests.Response()
+        response.status_code = 302 if request.url in routes else 200
+        if request.url in routes:
+            response.headers["Location"] = routes[request.url]
+        response._content = b"{}"
+        response.headers["Content-Type"] = "application/json"
+        response.raw = SimpleNamespace(release_conn=lambda: None)
+        response.request, response.url = request, request.url
+        return response
+
+    monkeypatch.setattr(requests.adapters.HTTPAdapter, "send", send)
+    return sent, routes
+
+
+def _carries(request) -> bool:
+    """True if every extra header went out; False if none did; fails on a partial set."""
+    present = {k: request.headers.get(k) for k in EXTRA if k in request.headers}
+    assert present in ({}, EXTRA)
+    return bool(present)
 
 
 @pytest.fixture
@@ -142,6 +179,49 @@ def test_a_malformed_value_stops_the_server_at_startup(monkeypatch):
         get_stdio_mcp()
 
 
+# --- origin matching ---------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        (f"{PLANE}/api/v1/", True),
+        ("http://PLANE.Test/x", True),
+        ("HTTP://plane.test/x", True),
+        ("http://plane.test:80/x", True),
+        ("https://plane.test/x", False),
+        ("http://plane.test:8080/x", False),
+        ("http://plane.test.evil.example/x", False),
+        ("http://plane.test@evil.example/x", False),
+        (f"http://evil.example/?next={PLANE}", False),
+        ("http://plane.test:notaport/x", False),
+        ("/relative/path", False),
+        ("", False),
+    ],
+)
+def test_origin_is_scheme_host_and_effective_port(url, expected):
+    assert is_plane_origin(url) is expected
+
+
+def test_https_default_port_and_host_case_are_normalised_on_the_base_too(monkeypatch):
+    monkeypatch.setenv("PLANE_BASE_URL", "https://Plane.Example:443/some/path/")
+    assert is_plane_origin("https://plane.example/api/")
+    assert not is_plane_origin("http://plane.example/api/")
+
+
+def test_the_internal_base_url_is_a_plane_origin_too(monkeypatch):
+    monkeypatch.setenv("PLANE_INTERNAL_BASE_URL", "http://plane-api.internal:8000")
+    assert is_plane_origin("http://plane-api.internal:8000/api/v1/")
+    assert not is_plane_origin("http://plane-api.internal/api/v1/")
+    assert is_plane_origin(f"{PLANE}/api/v1/")
+
+
+def test_without_plane_base_url_the_default_is_the_plane_origin(monkeypatch):
+    monkeypatch.delenv("PLANE_BASE_URL")
+    assert is_plane_origin("https://api.plane.so/api/v1/")
+    assert not is_plane_origin(f"{PLANE}/api/v1/")
+
+
 # --- the plane-sdk client, every transport -----------------------------------
 
 
@@ -176,7 +256,8 @@ def test_every_session_the_sdk_client_creates_carries_the_headers(kind, extra, m
 
     assert len(created) > 30
     for session in created:
-        assert {k: session.headers.get(k) for k in EXTRA} == EXTRA
+        assert _carries(session.prepare_request(requests.Request("GET", f"{PLANE}/api/v1/x")))
+        assert not _carries(session.prepare_request(requests.Request("GET", f"{STORAGE}/x")))
 
 
 @pytest.mark.parametrize("kind", sorted(CONNECTIONS))
@@ -201,6 +282,17 @@ def test_v1_and_v2_calls_send_the_headers_and_keep_their_own_auth(kind, extra, w
         assert request.headers[auth_header] == auth_value
 
 
+def test_sdk_calls_through_the_internal_base_url_send_the_headers(extra, wire, monkeypatch):
+    monkeypatch.setenv("PLANE_INTERNAL_BASE_URL", "http://plane-api.internal:8000")
+    try:
+        get_plane_client_context().client.users.get_me()
+    except Exception:
+        pass
+    (request,) = wire
+    assert request.url.startswith("http://plane-api.internal:8000/")
+    assert _carries(request)
+
+
 def test_without_the_variable_the_sdk_sends_nothing_extra(wire):
     try:
         get_plane_client_context().client.users.get_me()
@@ -209,18 +301,17 @@ def test_without_the_variable_the_sdk_sends_nothing_extra(wire):
     assert not any(k in wire[0].headers for k in EXTRA)
 
 
-# --- requests that must NOT carry the headers --------------------------------
+# --- storage and user URLs: by origin, except upload_from_url ----------------
 
 
-def test_the_sdk_upload_sends_the_headers_to_plane_but_not_to_storage(extra, wire, monkeypatch):
+@pytest.mark.parametrize(
+    ("storage", "carried"), [(STORAGE, False), (PLANE, True)], ids=["other-origin", "plane-origin"]
+)
+def test_the_sdk_upload_sends_the_headers_to_storage_only_on_a_plane_origin(storage, carried, extra, wire, monkeypatch):
     """upload_from_bytes posts the file to a presigned storage URL between two Plane calls."""
     responses = iter(
         [
-            {
-                "upload_data": {"url": "https://storage.example.com/bucket", "fields": {}},
-                "asset_id": "a1",
-                "attachment": {},
-            },
+            {"upload_data": {"url": f"{storage}/bucket", "fields": {}}, "asset_id": "a1", "attachment": {}},
             {},
             {},
         ]
@@ -238,26 +329,95 @@ def test_the_sdk_upload_sends_the_headers_to_plane_but_not_to_storage(extra, wir
 
     client.work_items.attachments.upload_from_bytes("acme", "p", "w", b"data", "f.txt", "text/plain")
 
-    plane, storage, done = wire
-    assert storage.url.startswith("https://storage.example.com/")
-    assert not any(k in storage.headers for k in EXTRA)
+    plane, upload, done = wire
+    assert upload.url == f"{storage}/bucket"
+    assert _carries(upload) is carried
     for request in (plane, done):
         assert request.url.startswith(PLANE)
-        assert {k: request.headers.get(k) for k in EXTRA} == EXTRA
+        assert _carries(request)
 
 
-def test_reading_an_attachment_does_not_send_the_headers_to_the_presigned_url(extra, wire, monkeypatch):
+def _read_from(url, monkeypatch):
     monkeypatch.setattr(
         workitem_attachment, "_find", lambda *a: SimpleNamespace(attributes={"name": "a.txt", "type": "text/plain"})
     )
-    monkeypatch.setattr(workitem_attachment, "_download_url", lambda *a: "https://storage.example.com/a.txt")
-    client = get_plane_client_context().client
+    monkeypatch.setattr(workitem_attachment, "_download_url", lambda *a: url)
+    workitem_attachment._read(get_plane_client_context().client, "acme", "p", "w", "a")
 
-    workitem_attachment._read(client, "acme", "p", "w", "a")
+
+@pytest.mark.parametrize(
+    ("storage", "carried"), [(STORAGE, False), (PLANE, True)], ids=["other-origin", "plane-origin"]
+)
+def test_reading_an_attachment_sends_the_headers_only_to_a_plane_origin(storage, carried, extra, wire, monkeypatch):
+    _read_from(f"{storage}/a.txt", monkeypatch)
 
     (fetch,) = wire
-    assert fetch.url == "https://storage.example.com/a.txt"
-    assert not any(k in fetch.headers for k in EXTRA)
+    assert fetch.url == f"{storage}/a.txt"
+    assert _carries(fetch) is carried
+
+
+def test_upload_from_url_never_sends_the_headers_even_to_a_plane_origin(extra, monkeypatch):
+    """Otherwise any caller could use the server as a credentialed proxy into the gateway."""
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, *a, **k: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.215.14", port))],
+    )
+    sent: list[dict] = []
+
+    def urlopen(self, method, url, *args, headers=None, **kwargs):
+        sent.append(dict(headers or {}))
+        return SimpleNamespace(
+            status=200, headers={"Content-Type": "text/plain"}, read=lambda amt=None: b"x", release_conn=lambda: None
+        )
+
+    monkeypatch.setattr(urllib3.HTTPConnectionPool, "urlopen", urlopen)
+    monkeypatch.setattr(workitem_attachment, "attachment_to_dict", lambda attachment, slug: {})
+    client = SimpleNamespace(
+        work_items=SimpleNamespace(attachments=SimpleNamespace(upload_from_bytes=lambda **kwargs: None))
+    )
+    assert is_plane_origin(f"{PLANE}/f.txt")
+
+    workitem_attachment._upload(client, "acme", "p", "w", f"{PLANE}/f.txt", "")
+
+    assert sent == [{"Host": "plane.test"}]
+
+
+# --- redirects ---------------------------------------------------------------
+
+
+def test_a_redirect_off_the_plane_origin_drops_the_headers_and_one_on_it_keeps_them(extra, routed):
+    sent, routes = routed
+    routes[f"{PLANE}/api/v1/users/me/"] = f"{PLANE}/api/v1/users/me/again/"
+    routes[f"{PLANE}/api/v1/users/me/again/"] = f"{STORAGE}/elsewhere"
+    try:
+        get_plane_client_context().client.users.get_me()
+    except Exception:
+        pass
+
+    assert [r.url for r in sent] == [
+        f"{PLANE}/api/v1/users/me/",
+        f"{PLANE}/api/v1/users/me/again/",
+        f"{STORAGE}/elsewhere",
+    ]
+    assert [_carries(r) for r in sent] == [True, True, False]
+
+
+def test_a_redirect_to_another_scheme_on_the_same_host_drops_them(extra, routed):
+    sent, routes = routed
+    routes[f"{PLANE}/api/v1/users/me/"] = "https://plane.test/api/v1/users/me/"
+    try:
+        get_plane_client_context().client.users.get_me()
+    except Exception:
+        pass
+    assert [_carries(r) for r in sent] == [True, False]
+
+
+def test_an_attachment_read_redirected_off_the_plane_origin_drops_them(extra, routed, monkeypatch):
+    sent, routes = routed
+    routes[f"{PLANE}/a.txt"] = f"{STORAGE}/a.txt"
+    _read_from(f"{PLANE}/a.txt", monkeypatch)
+    assert [(r.url, _carries(r)) for r in sent] == [(f"{PLANE}/a.txt", True), (f"{STORAGE}/a.txt", False)]
 
 
 # --- the auth providers' own calls to Plane ----------------------------------
@@ -280,7 +440,7 @@ def test_oauth_verification_sends_the_headers_on_both_calls(extra, httpx_wire):
 
     assert [str(r.url) for r in sent] == [f"{PLANE}/api/v1/users/me/", f"{PLANE}/auth/o/app-installation/"]
     for request in sent:
-        assert {k: request.headers.get(k) for k in EXTRA} == EXTRA
+        assert _carries(request)
         assert request.headers["authorization"] == "Bearer oauth-tok"
 
 
@@ -307,3 +467,12 @@ def test_the_oauth_token_exchange_sends_the_headers_and_keeps_client_auth(extra,
     assert str(request.url) == f"{PLANE}/auth/o/token/"
     assert {k: request.headers.get(k) for k in EXTRA} == EXTRA
     assert request.headers["authorization"].startswith("Basic ")
+
+
+def test_an_auth_call_to_a_non_plane_origin_gets_no_headers(extra, httpx_wire):
+    """The httpx clients apply the same origin rule as the requests sessions."""
+    sent, _ = httpx_wire
+    asyncio.run(PlaneOAuthTokenVerifier(plane_base_url="http://other.test").verify_token("oauth-tok"))
+
+    assert str(sent[0].url) == "http://other.test/api/v1/users/me/"
+    assert not any(_carries(r) for r in sent)

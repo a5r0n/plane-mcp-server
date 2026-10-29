@@ -27,7 +27,7 @@ from plane_mcp.attachments import (
     attachment_to_dict,
     fetch_validated_get,
 )
-from plane_mcp.client import get_plane_client_context
+from plane_mcp.client import PlaneSession, get_plane_client_context
 from plane_mcp.toolkit import Action, build_annotations, build_description, missing, needs
 
 NAME = "workitem_attachment"
@@ -107,7 +107,8 @@ def _read(client, workspace_slug: str, project_id: str, workitem_id: str, attach
 
     url = _download_url(client, workspace_slug, project_id, workitem_id, attachment_id)
     try:
-        response = requests.get(url, timeout=HTTP_TIMEOUT)
+        with PlaneSession() as session:
+            response = session.get(url, timeout=HTTP_TIMEOUT)
         response.raise_for_status()
     except requests.RequestException as exc:
         raise ValueError(f"Failed to fetch attachment content: {exc}") from exc

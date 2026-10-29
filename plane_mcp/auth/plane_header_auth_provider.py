@@ -6,7 +6,7 @@ from fastmcp.server.auth import TokenVerifier
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.utilities.logging import get_logger
 
-from plane_mcp.client import plane_extra_headers
+from plane_mcp.client import scope_extra_headers_hook
 
 logger = get_logger(__name__)
 
@@ -26,7 +26,9 @@ class PlaneHeaderAuthProvider(TokenVerifier):
         user_url = f"{base_url}/api/v1/users/me/"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout_seconds, headers=plane_extra_headers()) as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout_seconds, event_hooks={"request": [scope_extra_headers_hook]}
+            ) as client:
                 response = await client.get(
                     user_url,
                     headers={
