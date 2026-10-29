@@ -145,7 +145,7 @@ unchanged.
 | `PLANE_API_KEY` | stdio | API key |
 | `PLANE_WORKSPACE_SLUG` | stdio | Target workspace |
 | `PLANE_BASE_URL` | optional | Plane API URL (default `https://api.plane.so`) |
-| `PLANE_EXTRA_HEADERS` | optional, all transports | Extra headers sent on every request to the Plane API — a JSON object or `Name: value` lines |
+| `PLANE_EXTRA_HEADERS` | optional, all transports | Extra headers sent on every request to the Plane origin — a JSON object or `Name: value` lines |
 
 The remote transports carry credentials in the connection — the OAuth flow or the
 PAT headers — and need none of the first two.
@@ -157,10 +157,19 @@ service-token headers:
 export PLANE_EXTRA_HEADERS='{"CF-Access-Client-Id": "<id>", "CF-Access-Client-Secret": "<secret>"}'
 ```
 
-They go to the Plane API only (SDK calls, token verification, the OAuth token
-exchange), never to presigned storage URLs or `upload_from_url` targets.
+They go on a request only when its origin (scheme, host, port) is that of
+`PLANE_BASE_URL` or `PLANE_INTERNAL_BASE_URL`: SDK calls, token verification, the
+OAuth token exchange, and attachment storage when it is served from the Plane
+origin. Storage on any other origin gets none, and a redirect that leaves the
+Plane origin drops them. `upload_from_url` never sends them, even to a Plane URL,
+so callers cannot use the server as a credentialed proxy into the gateway.
 `Authorization` and `X-Api-Key` are refused: the server sets those from the
 caller's credentials. A malformed value stops the server at startup.
+
+The OAuth authorize step runs in the user's browser, so it cannot carry these
+headers. If the gateway also guards the authorize page, users sign in to the
+gateway themselves, or the operator exempts the OAuth authorize and token paths
+from it.
 
 ### Outbound proxy for attachment uploads
 
