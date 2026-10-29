@@ -134,5 +134,6 @@ Integration tests in `tests/test_integration.py` use `FastMCP.Client` with `Stre
 | `REDIS_HOST` / `REDIS_PORT` | http/sse (optional) | Token storage (falls back to in-memory) |
 | `PLANE_OAUTH_PROVIDER_*` | http/sse OAuth | OAuth client credentials and base URL |
 | `PLANE_OAUTH_ALLOWED_REDIRECT_URIS` | http/sse OAuth (optional) | Comma-separated redirect URI patterns appended to the built-in allowlist (onboard clients without a release) |
+| `PLANE_MCP_DISABLED_TOOLS` | all (optional) | Comma-separated tool names to leave out, with their retired names; an unknown name fails startup |
 | `LOG_USER_INFO` | all (optional, default: false) | When `true`, include user info (PII such as display name) in logs alongside the opaque user id |
 | `LOG_PAYLOADS` | all (optional, default: true) | Log request payloads.|
