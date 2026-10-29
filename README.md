@@ -145,9 +145,22 @@ unchanged.
 | `PLANE_API_KEY` | stdio | API key |
 | `PLANE_WORKSPACE_SLUG` | stdio | Target workspace |
 | `PLANE_BASE_URL` | optional | Plane API URL (default `https://api.plane.so`) |
+| `PLANE_EXTRA_HEADERS` | optional, all transports | Extra headers sent on every request to the Plane API — a JSON object or `Name: value` lines |
 
 The remote transports carry credentials in the connection — the OAuth flow or the
-PAT headers — and need none of these.
+PAT headers — and need none of the first two.
+
+`PLANE_EXTRA_HEADERS` is for a gateway in front of Plane, such as Cloudflare Access
+service-token headers:
+
+```bash
+export PLANE_EXTRA_HEADERS='{"CF-Access-Client-Id": "<id>", "CF-Access-Client-Secret": "<secret>"}'
+```
+
+They go to the Plane API only (SDK calls, token verification, the OAuth token
+exchange), never to presigned storage URLs or `upload_from_url` targets.
+`Authorization` and `X-Api-Key` are refused: the server sets those from the
+caller's credentials. A malformed value stops the server at startup.
 
 ### Outbound proxy for attachment uploads
 

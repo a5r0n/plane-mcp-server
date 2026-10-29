@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 from mcp.types import Icon
 
 from plane_mcp.auth import PlaneHeaderAuthProvider, PlaneOAuthProvider
+from plane_mcp.client import plane_extra_headers
 from plane_mcp.instructions import SERVER_INSTRUCTIONS
 from plane_mcp.middleware import CoerceArguments, PlaneLoggingMiddleware, ValidateActionArguments
 from plane_mcp.storage import build_token_store
@@ -56,6 +57,7 @@ LOG_PAYLOADS = os.getenv("LOG_PAYLOADS", "true").lower() == "true"
 
 def _configured(mcp: FastMCP) -> FastMCP:
     """The middleware stack and tools every transport shares."""
+    plane_extra_headers()  # fail at startup, not on the first call, if PLANE_EXTRA_HEADERS is malformed
     mcp.add_middleware(PlaneLoggingMiddleware(include_payloads=LOG_PAYLOADS))
     mcp.add_middleware(CoerceArguments())
     mcp.add_middleware(ValidateActionArguments())

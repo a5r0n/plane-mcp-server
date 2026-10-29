@@ -1,14 +1,79 @@
 """Plane client initialization for MCP server."""
 
+import json
 import os
+from functools import cache
 from typing import Any, NamedTuple
 
+import requests
 from fastmcp.server.auth.auth import AccessToken
 from fastmcp.server.dependencies import get_access_token
 from fastmcp.utilities.logging import get_logger
 from plane import PlaneClient
 
 logger = get_logger(__name__)
+
+EXTRA_HEADERS_ENV = "PLANE_EXTRA_HEADERS"
+# The server sets these itself; letting config replace them would swap the caller's identity.
+_RESERVED_HEADERS = frozenset({"authorization", "x-api-key"})
+
+
+@cache
+def plane_extra_headers() -> dict[str, str]:
+    """Headers from PLANE_EXTRA_HEADERS, sent on every request to the Plane API.
+
+    Accepts a JSON object or `Name: value` lines. Errors name the header or line, never a value.
+    """
+    raw = os.getenv(EXTRA_HEADERS_ENV, "").strip()
+    if not raw:
+        return {}
+    if raw[0] in "{[":
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{EXTRA_HEADERS_ENV} is not valid JSON (line {exc.lineno}, column {exc.colno})") from None
+        if not isinstance(parsed, dict):
+            raise ValueError(f"{EXTRA_HEADERS_ENV} must be a JSON object of header names to string values")
+        pairs = list(parsed.items())
+    else:
+        pairs = []
+        for number, line in enumerate(raw.splitlines(), start=1):
+            if not line.strip():
+                continue
+            name, sep, value = line.partition(":")
+            if not sep:
+                raise ValueError(f"{EXTRA_HEADERS_ENV} line {number} is not of the form `Name: value`")
+            pairs.append((name.strip(), value.strip()))
+
+    headers: dict[str, str] = {}
+    for name, value in pairs:
+        if not name or any(c.isspace() or c == ":" for c in name):
+            raise ValueError(f"{EXTRA_HEADERS_ENV} has an invalid header name {name!r}")
+        if not isinstance(value, str) or "\r" in value or "\n" in value:
+            raise ValueError(f"{EXTRA_HEADERS_ENV} header {name!r} must have a single-line string value")
+        if name.lower() in _RESERVED_HEADERS:
+            raise ValueError(f"{EXTRA_HEADERS_ENV} may not set {name!r}; the server sets it from the credentials")
+        headers[name] = value
+    return headers
+
+
+def _add_session_headers(client: PlaneClient, headers: dict[str, str]) -> None:
+    """Set `headers` on every requests session the SDK client owns.
+
+    plane-sdk has no hook for extra headers, and gives each resource its own session.
+    Per-request headers (auth, Content-Type) still win over session defaults.
+    """
+    seen: set[int] = set()
+    stack: list[Any] = [client]
+    while stack:
+        obj = stack.pop()
+        if id(obj) in seen:
+            continue
+        seen.add(id(obj))
+        if isinstance(obj, requests.Session):
+            obj.headers.update(headers)
+        elif type(obj).__module__.startswith("plane."):
+            stack.extend(getattr(obj, "__dict__", {}).values())
 
 
 class PlaneClientContext(NamedTuple):
@@ -92,6 +157,8 @@ def get_plane_client_context() -> PlaneClientContext:
             base_url=base_url,
             api_key=api_key,
         )
+    if extra := plane_extra_headers():
+        _add_session_headers(client, extra)
 
     return PlaneClientContext(
         client=client,
