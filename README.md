@@ -166,6 +166,7 @@ Self-hosting the server itself:
 | `REDIS_URL` | OAuth token storage as one connection URL (`redis://` or `rediss://` for TLS); wins over host/port |
 | `REDIS_HOST` / `REDIS_PORT` | OAuth token storage; falls back to in-memory |
 | `PLANE_OAUTH_PROVIDER_*` | OAuth client credentials and base URL |
+| `PLANE_MCP_DISABLED_TOOLS` | Comma-separated tool names to leave out, with their retired names — e.g. features your Plane edition or plan lacks. An unknown name fails startup |
 | `MCP_PATH_PREFIX` | Path prefix for the HTTP routes, when mounted behind a proxy — `/plane` serves `/plane/http/mcp` |
 
 ### OAuth redirect URIs
