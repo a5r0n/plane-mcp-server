@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from plane.errors.errors import HttpError
 
 RAW_POST = "projects._post"
@@ -29,9 +30,7 @@ def test_a_non_admin_gets_plane_403_unchanged(registered, spy):
     forbidden = HttpError("You don't have the required permissions.", status_code=403)
     spy.returns[RAW_POST] = forbidden
 
-    try:
+    with pytest.raises(HttpError) as excinfo:
         registered["member"].fn(role=20, **ADD)
-    except HttpError as exc:
-        assert exc is forbidden
-    else:
-        raise AssertionError("the 403 was swallowed")
+
+    assert excinfo.value is forbidden
