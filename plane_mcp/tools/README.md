@@ -1,6 +1,6 @@
 # The tool surface
 
-**30 tools**, one per Plane resource, each taking an `action` parameter that selects the operation. 208 actions in total.
+**31 tools**, one per Plane resource, each taking an `action` parameter that selects the operation. 213 actions in total.
 
 ```python
 workitem(action="create", project_id=..., name="Fix login")
@@ -8,7 +8,7 @@ workitem(action="list", project_id=..., pql='state__group = "started"')
 cycle(action="archive", project_id=..., cycle_id=...)
 ```
 
-A compact catalogue — 30 tools, ~67k characters — loads fully in every MCP client and leaves the context budget to the conversation.
+A compact catalogue — 31 tools, ~69k characters — loads fully in every MCP client and leaves the context budget to the conversation.
 
 Five parts, in this order:
 
@@ -96,6 +96,7 @@ Where the workspace owns a resource outright, both directions of wrong-scope wri
 | `customer_property` | `list` · `retrieve` · `create` · `update` · `delete` · `get_values` · `set_values` |
 | `customer_request` | `list` · `retrieve` · `create` · `update` · `delete` |
 | `cycle` | `list` · `retrieve` · `create` · `update` · `delete` · `list_workitems` · `manage_workitems` · `transfer_workitems` · `complete` · `archive` · `unarchive` |
+| `epic` | `list` · `create` · `retrieve` · `children` · `add_children` |
 | `get_pql_reference` | *(no action parameter)* |
 | `initiative` | `list` · `retrieve` · `create` · `update` · `delete` · `list_projects` · `add_projects` · `remove_projects` · `list_workitems` · `manage_workitems` |
 | `intake` | `list` · `retrieve` · `create` · `update` · `delete` |
@@ -125,14 +126,6 @@ Where the workspace owns a resource outright, both directions of wrong-scope wri
 Every tool's own description lists its actions with their required and optional
 parameters; that description is generated from `ACTIONS` and is the authoritative
 reference at call time.
-
-## Epics
-
-There are no epic tools. An epic is a work item whose type is named "Epic":
-
-1. `workitem_type resolve` with `project_id` and `name="Epic"` → `id` is the `type_id`.
-2. `workitem create` with that `type_id`.
-3. `workitem list` with `pql='type = "<type id>"'`.
 
 ## Tests
 
