@@ -35,7 +35,7 @@ TITLE = "Epics"
 PRIORITIES = get_args(PriorityEnum)
 
 _UNAVAILABLE = "epics aren't available on this Plane: its API has no epic routes (stock Community Edition)"
-_NO_EPICS = f"Error: Plane answered 404: {_UNAVAILABLE}."
+_NO_EPICS = f"Error: Plane answered 404: {_UNAVAILABLE}, or the project doesn't exist."
 _NOT_AN_EPIC = f"Error: Plane answered 404: that id is not an epic in this project, or {_UNAVAILABLE}."
 
 ACTIONS = (

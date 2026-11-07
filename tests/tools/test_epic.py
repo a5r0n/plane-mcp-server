@@ -70,7 +70,9 @@ def test_paged_actions_pass_the_cursor_through(registered, spy, action, method):
 def test_stock_plane_says_epics_are_unavailable(registered, spy, action, kwargs):
     spy.returns["epics." + action] = NOT_FOUND
 
-    assert "aren't available" in str(_call(registered, action=action, **kwargs))
+    text = str(_call(registered, action=action, **kwargs))
+
+    assert "aren't available" in text and "project doesn't exist" in text
 
 
 @pytest.mark.parametrize(
