@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 from plane.models.query_params import MemberListQueryParams
 
 from plane_mcp.client import get_plane_client_context
-from plane_mcp.toolkit import Action, build_annotations, build_description, missing, opt
+from plane_mcp.toolkit import Action, build_annotations, build_description, missing, needs, opt
 
 NAME = "member"
 TITLE = "Members and roles"
@@ -33,6 +33,11 @@ ACTIONS = (
         read=True,
     ),
     Action("list_project", ("project_id",), read=True),
+    Action(
+        "add_project",
+        ("project_id", "user_id", "role"),
+        note="adds a workspace member; needs project admin; returns nothing, read back with list_project",
+    ),
     Action("list_roles", optional=("namespace", "cursor", "per_page"), read=True),
     Action("retrieve_role", ("role_id",), read=True),
 )
@@ -40,7 +45,8 @@ ACTIONS = (
 FOOTER = (
     "namespace is 'workspace' (Owner/Admin/Member/Guest) or 'project' "
     "(Admin/Contributor/Commenter/Guest); omit for both. A role slug is stable but not "
-    "globally unique -- key on (namespace, slug)."
+    "globally unique -- key on (namespace, slug).\n"
+    "role (add_project) is the numeric project role: 20 admin, 15 member, 5 guest."
 )
 
 LEGACY = {
@@ -59,8 +65,10 @@ def register(mcp: FastMCP) -> None:
         annotations=build_annotations(TITLE, ACTIONS),
     )
     def member(
-        action: Literal["me", "list_workspace", "list_project", "list_roles", "retrieve_role"],
+        action: Literal["me", "list_workspace", "list_project", "add_project", "list_roles", "retrieve_role"],
         project_id: str = "",
+        user_id: str = "",
+        role: int = 0,
         role_id: str = "",
         namespace: str = "",
         first_name: str = "",
@@ -101,6 +109,14 @@ def register(mcp: FastMCP) -> None:
             if not project_id:
                 return missing(action, "project_id")
             return client.projects.get_members(workspace_slug=workspace_slug, project_id=project_id)
+
+        if action == "add_project":
+            # Required: Plane makes an omitted role a guest without saying so.
+            if error := needs(action, project_id=project_id, user_id=user_id, role=role):
+                return error
+            # Raw: the SDK wraps this endpoint only in api_v2, which Community Edition does not serve.
+            client.projects._post(f"{workspace_slug}/projects/{project_id}/members", {"member": user_id, "role": role})
+            return None
 
         if action == "list_roles":
             return client.roles.list(
