@@ -9,6 +9,7 @@ Shared building blocks for the tool surface, split by *when* they act. All re-ex
 | `mentions.py` | call | `render_mentions`, `tokenize_mentions`, `mention_user_ids`, `project_mention_error` |
 | `paging.py` | response | `envelope`, `dump_results`, `pql_failure`, `workitem_page` |
 | `governance.py` | policy | `workspace_owns_resource`, `workspace_owns`, `scoped`, `plan_gated` |
+| `weburl.py` | response | `ProjectIdentifiers`, `build_web_url`, `with_web_url` |
 | `transforms.py` | listing | `StripOutputSchemas` |
 
 Nothing here knows which catalogue is calling it. Anything encoding this server's own history — the `RESOURCES` tuple, retired names — lives under `tools/`.
