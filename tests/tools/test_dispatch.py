@@ -29,6 +29,7 @@ SAMPLES: dict[str, object] = {
     # page and project take the numeric level; collection names it.
     "access": {"page": 1, "project": 1, "collection": "private"},
     "member_access": "edit",
+    "role": 15,
     "network": 2,
     "timezone": "UTC",
     "workitem_identifier": "ENG-42",
@@ -183,6 +184,7 @@ MEMBERSHIP_MUTATIONS = {
     ("initiative", "add_projects"),
     ("initiative", "remove_projects"),
     ("initiative", "manage_workitems"),
+    ("member", "add_project"),
     ("milestone", "manage_workitems"),
     ("module", "manage_workitems"),
     ("release", "manage_workitems"),
