@@ -74,9 +74,9 @@ async def run_integration_test():
     2. Create work item 1
     3. Create work item 2
     4. Update work item 2 with work item 1 as parent
-    5. Find or create an "Epic" work item type, and create an epic work item
-    6. Update work item 2 to be under the epic
-    7. List all epics (work items of the "Epic" type)
+    5. Create an epic with the epic tool
+    6. Add work item 2 to the epic
+    7. List the epic's children
     8. Create a milestone and associate it with the project and work items
     9. Update the milestone to change its name and description
     10. List all milestones in the project
@@ -149,53 +149,33 @@ async def run_integration_test():
         )
         print("Set work item 1 as parent of work item 2")
 
-        # 5. Find or create an "Epic" work item type, and create an epic work item
-        print("Finding or creating 'Epic' work item type...")
-        epic_type_result = await client.call_tool("resolve_work_item_type", {"project_id": project_id, "name": "Epic"})
-        epic_type = extract_result(epic_type_result)
-
-        epic_type_id = epic_type["id"]
-        print(f"Using 'Epic' work item type: {epic_type_id}")
-
+        # 5. Create an epic
         print("Creating epic...")
         epic_result = await client.call_tool(
-            "create_work_item",
-            {
-                "project_id": project_id,
-                "name": f"Epic {unique_id}",
-                "type_id": epic_type_id,
-            },
+            "epic",
+            {"action": "create", "project_id": project_id, "name": f"Epic {unique_id}"},
         )
-
         epic = extract_result(epic_result)
-
         epic_id = epic["id"]
-
         print(f"Created epic: {epic_id}")
 
-        # 6. Update work item 2 to be under the epic
-        print("Setting parent relationship to epic...")
+        # 6. Add work item 2 to the epic
+        print("Adding work item 2 to the epic...")
         await client.call_tool(
-            "update_work_item",
-            {
-                "project_id": project_id,
-                "work_item_id": work_item_2_id,
-                "parent": epic_id,
-            },
+            "epic",
+            {"action": "add_children", "project_id": project_id, "epic_id": epic_id, "workitem_ids": [work_item_2_id]},
         )
         print("Set epic as parent of work item 2")
 
-        # 7. List all epics
-        print("Listing epics in project...")
-        epics_result = await client.call_tool(
-            "list_work_items",
-            {
-                "project_id": project_id,
-                "pql": f'type = "{epic_type_id}"',
-            },
+        # 7. List the epic's children
+        print("Listing the epic's children...")
+        children_result = await client.call_tool(
+            "epic",
+            {"action": "children", "project_id": project_id, "epic_id": epic_id},
         )
-        epics = extract_result(epics_result)["results"]
-        print(f"Epics in project: {[e['id'] for e in epics]}")
+        children = extract_result(children_result)["results"]
+        print(f"Children of the epic: {[c['id'] for c in children]}")
+        assert work_item_2_id in [c["id"] for c in children], children
 
         # 8. Create a milestone and associate work items with it.
         # A milestone is named by `title`, and work items are linked afterwards --
