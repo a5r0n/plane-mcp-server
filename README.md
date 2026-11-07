@@ -91,6 +91,30 @@ Requires Node.js 22+.
 }
 ```
 
+### HTTP with a personal access token — self-hosted
+
+```bash
+docker run -p 8211:8211 -e PLANE_BASE_URL=https://plane.example.com \
+  ghcr.io/<owner>/plane-mcp-server:<sha> api-key
+```
+
+`api-key` mode serves only the token endpoints, with no OAuth or SSE routes, so it
+needs no OAuth client or Redis. Each caller sends its own PAT and workspace in the
+headers above.
+
+| Path | Serves |
+|---|---|
+| `/http/api-key/mcp` | every tool |
+| `/http/api-key/read-only/mcp` | every tool, but a call is refused unless it is a read; for agents that must not change Plane |
+| `/healthz` | `ok`, for container health checks |
+
+The read-only endpoint lets a call through only when it resolves to an action
+declared a read, including through a retired tool name; anything it cannot
+resolve is refused. `MCP_PATH_PREFIX` moves all three paths.
+
+A key that validates against Plane is trusted for 60 seconds without asking again,
+so a revoked key keeps working for up to a minute. A rejected key is never cached.
+
 ### SSE — deprecated
 
 `https://mcp.plane.so/sse` is maintained for backward compatibility only. Use an

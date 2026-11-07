@@ -12,7 +12,8 @@ import uvicorn
 from fastmcp.server.dependencies import get_access_token
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
-from starlette.routing import Mount
+from starlette.responses import PlainTextResponse
+from starlette.routing import Mount, Route
 
 from plane_mcp.server import get_header_mcp, get_oauth_mcp, get_stdio_mcp
 
@@ -114,16 +115,58 @@ class ServerMode(Enum):
     STDIO = "stdio"
     SSE = "sse"
     HTTP = "http"
+    API_KEY = "api-key"
 
 
 @asynccontextmanager
-async def combined_lifespan(oauth_app, header_app, sse_app):
-    """Combine lifespans from both OAuth and Header MCP apps."""
-    # Start both lifespans
-    async with oauth_app.lifespan(oauth_app):
-        async with header_app.lifespan(header_app):
-            async with sse_app.lifespan(sse_app):
-                yield
+async def combined_lifespan(*apps):
+    """Run every mounted MCP app's lifespan for as long as the server runs."""
+    if not apps:
+        yield
+        return
+    first, *rest = apps
+    async with first.lifespan(first):
+        async with combined_lifespan(*rest):
+            yield
+
+
+async def healthz(_request):
+    return PlainTextResponse("ok")
+
+
+def api_key_app(prefix: str = "") -> Starlette:
+    """Header-auth endpoints only: read-write and read-only, with no OAuth or SSE surface."""
+    header_app = get_header_mcp().http_app(stateless_http=True)
+    read_only_app = get_header_mcp(read_only=True).http_app(stateless_http=True)
+    return Starlette(
+        routes=[
+            Route(prefix + "/healthz", healthz),
+            # Before /http/api-key, which would otherwise claim this path.
+            Mount(prefix + "/http/api-key/read-only", app=read_only_app),
+            Mount(prefix + "/http/api-key", app=header_app),
+        ],
+        lifespan=lambda app: combined_lifespan(header_app, read_only_app),
+    )
+
+
+def serve(app) -> None:
+    """Run `app` on port 8211, with uvicorn's own logs in the same JSON shape."""
+    for uv_logger_name in ("uvicorn", "uvicorn.error"):
+        uv_logger = logging.getLogger(uv_logger_name)
+        for h in uv_logger.handlers[:]:
+            uv_logger.removeHandler(h)
+        uv_handler = logging.StreamHandler(sys.stderr)
+        uv_handler.setFormatter(JSONFormatter())
+        uv_handler.addFilter(UserContextFilter())
+        uv_logger.addHandler(uv_handler)
+
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8211,
+        log_level="info",
+        access_log=False,
+    )
 
 
 def main() -> None:
@@ -179,24 +222,14 @@ def main() -> None:
             allow_headers=["*"],
         )
 
-        # Configure uvicorn loggers to use JSON formatting too
-        for uv_logger_name in ("uvicorn", "uvicorn.error"):
-            uv_logger = logging.getLogger(uv_logger_name)
-            for h in uv_logger.handlers[:]:
-                uv_logger.removeHandler(h)
-            uv_handler = logging.StreamHandler(sys.stderr)
-            uv_handler.setFormatter(JSONFormatter())
-            uv_handler.addFilter(UserContextFilter())
-            uv_logger.addHandler(uv_handler)
-
         logger.info("Starting HTTP server at URLs: /mcp and /header/mcp")
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=8211,
-            log_level="info",
-            access_log=False,
-        )
+        serve(app)
+        return
+
+    if server_mode == ServerMode.API_KEY:
+        prefix = os.getenv("MCP_PATH_PREFIX") or ""
+        logger.info("Starting API-key server at %s/http/api-key/mcp and %s/http/api-key/read-only/mcp", prefix, prefix)
+        serve(api_key_app(prefix))
         return
 
 

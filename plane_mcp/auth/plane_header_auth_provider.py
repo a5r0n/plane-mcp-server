@@ -1,3 +1,4 @@
+import hashlib
 import os
 import time
 
@@ -11,18 +12,33 @@ from plane_mcp.client import scope_extra_headers_hook
 logger = get_logger(__name__)
 
 DEFAULT_PLANE_BASE_URL = "https://api.plane.so"
+VALID_KEY_TTL_SECONDS = 60  # a revoked key keeps working this long, at most
 
 
 class PlaneHeaderAuthProvider(TokenVerifier):
     def __init__(self, required_scopes: list[str] | None = None, timeout_seconds: int = 10):
         super().__init__(required_scopes=required_scopes)
         self.timeout_seconds = timeout_seconds
+        # sha256(base_url, key) -> monotonic expiry. Only successes are kept.
+        self._valid_until: dict[str, float] = {}
 
     async def _validate_api_key(self, token: str) -> bool:
-        """Validate the API key by calling the Plane API."""
+        """Validate the API key against the Plane API, reusing a recent success."""
         base_url = (os.getenv("PLANE_INTERNAL_BASE_URL") or os.getenv("PLANE_BASE_URL", DEFAULT_PLANE_BASE_URL)).rstrip(
             "/"
         )
+        cache_key = hashlib.sha256(f"{base_url}\n{token}".encode()).hexdigest()
+        now = time.monotonic()
+        if self._valid_until.get(cache_key, 0.0) > now:
+            return True
+        if await self._check_api_key(base_url, token):
+            self._valid_until = {k: t for k, t in self._valid_until.items() if t > now}
+            self._valid_until[cache_key] = now + VALID_KEY_TTL_SECONDS
+            return True
+        return False
+
+    async def _check_api_key(self, base_url: str, token: str) -> bool:
+        """One round trip to Plane: does this key authenticate?"""
         user_url = f"{base_url}/api/v1/users/me/"
 
         try:

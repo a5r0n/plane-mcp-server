@@ -11,7 +11,7 @@ from fastmcp.tools.tool import ToolResult
 from fastmcp.utilities.logging import get_logger
 
 from plane_mcp.coercion import coerce_arguments
-from plane_mcp.tools.registry import action_arguments, alias_table
+from plane_mcp.tools.registry import action_arguments, alias_table, read_actions
 
 logger = get_logger(__name__)
 
@@ -65,6 +65,43 @@ class ValidateActionArguments(Middleware):
             # the permitted set, and a second opinion here would only muddle it.
             return None
         return stray_argument_error(action, arguments, by_action[action])
+
+
+class ReadOnly(Middleware):
+    """Refuse every call that is not a declared read, for a server that must not change Plane.
+
+    Fails closed: a call is let through only when it resolves to an action declared
+    `read=True` in `ACTIONS`. An unknown tool, an unknown action or a missing one is refused.
+    """
+
+    def __init__(self) -> None:
+        self._reads = read_actions()
+        self._aliases = alias_table()
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next):
+        arguments = getattr(context.message, "arguments", None)
+        if message := self.rejection(context.message.name, arguments if isinstance(arguments, dict) else {}):
+            logger.warning("Plane MCP: %s", message)
+            return ToolResult(content=message)
+        return await call_next(context)
+
+    def rejection(self, tool: str, arguments: dict) -> str | None:
+        """The message refusing this call, or None when it is a read."""
+        if alias := self._aliases.get(tool):
+            resource, action = alias
+        else:
+            resource, action = tool, arguments.get("action")
+        reads = self._reads.get(resource)
+        if reads is None:
+            return f"Error: {tool} is not available on this read-only server."
+        if action is None and len(reads.all) == 1:
+            # A single-operation tool takes no action parameter.
+            (action,) = reads.all
+        if action in reads.read:
+            return None
+        allowed = ", ".join(sorted(reads.read)) or "nothing"
+        what = f"action '{action}'" if action else "a call with no action"
+        return f"Error: this server is read-only and refuses {resource} {what}. Reads it allows: {allowed}."
 
 
 class CoerceArguments(Middleware):
