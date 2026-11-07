@@ -52,8 +52,14 @@ _NO_CUSTOM_RELATIONS = (
 )
 
 _NO_REMOVE = (
-    "Error: Plane answered 404: Community Edition's API cannot remove relations, or no such "
-    "relation exists. Remove it in the Plane web UI."
+    "Error: Plane answered 404: these work items have no relation, or this Plane's API cannot "
+    "remove one (stock Community Edition). Check with the list action; if the relation is listed, "
+    "remove it in the Plane web UI."
+)
+
+_NO_CUSTOM_REMOVE = (
+    "Error: Plane answered 404: no such custom relation, or custom relations are not on this "
+    "edition (Community Edition has none). For a built-in relation pass is_dependency=true."
 )
 
 _NOT_RELATED = (
@@ -73,8 +79,8 @@ ACTIONS = (
         "delete",
         ("project_id", "workitem_id", "related_workitem_id"),
         ("is_dependency",),
-        note="removes one relation; is_dependency=true for a built-in relation, false for a custom "
-        "one (default false). Community Edition cannot remove through the API",
+        note="removes the relation between the two items, from both; is_dependency=true for a "
+        "built-in relation, false for a custom one (default false)",
         destructive=True,
     ),
     Action("list_definitions", optional=("is_default", "is_active"), read=True),
@@ -293,6 +299,6 @@ def register(mcp: FastMCP) -> None:
                 )
         except HttpError as exc:
             if exc.status_code == 404:
-                return _NO_REMOVE
+                return _NO_REMOVE if is_dependency else _NO_CUSTOM_REMOVE
             raise
         return None
