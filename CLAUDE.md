@@ -106,6 +106,7 @@ Shared building blocks for the tool surface, split by *when* they act:
 | `mentions.py` | call | `render_mentions`, `tokenize_mentions`, `mention_user_ids`, `project_mention_error` |
 | `paging.py` | response | `envelope`, `dump_results`, `pql_failure`, `workitem_page` |
 | `governance.py` | policy | `workspace_owns_resource`, `GOVERNED_BY`, `workspace_owns`, `migration_in_progress`, `plan_gated` |
+| `weburl.py` | response | `ProjectIdentifiers`, `build_web_url`, `with_web_url` |
 | `transforms.py` | listing | `StripOutputSchemas` |
 
 Governance, plan gates and the rest of the toolkit conventions are documented in `plane_mcp/toolkit/README.md`, including what adding a newly governed resource takes.
@@ -129,6 +130,7 @@ Integration tests in `tests/test_integration.py` use `FastMCP.Client` with `Stre
 | `PLANE_API_KEY` | stdio | API key for authentication |
 | `PLANE_WORKSPACE_SLUG` | stdio | Target workspace |
 | `PLANE_BASE_URL` | all (default: https://api.plane.so) | Plane API URL |
+| `PLANE_WEB_URL` | all (optional) | Web app URL for `workitem` results' `web_url` (`{web}/{workspace}/browse/{PROJECT}-{seq}/`); defaults to `PLANE_BASE_URL`, with `api.plane.so` mapped to `app.plane.so` |
 | `PLANE_INTERNAL_BASE_URL` | http/sse (optional) | Internal URL for server-to-server calls |
 | `PLANE_EXTRA_HEADERS` | all (optional) | Headers (JSON object or `Name: value` lines) sent only to the `PLANE_BASE_URL`/`PLANE_INTERNAL_BASE_URL` origins (redirects off them drop the headers; `upload_from_url` never gets them); may not set `Authorization`/`X-Api-Key` |
 | `REDIS_URL` | http/sse (optional) | Token storage as one connection URL (`redis://`/`rediss://`); wins over host/port |

@@ -32,8 +32,10 @@ from plane_mcp.client import get_plane_client_context
 from plane_mcp.pql_reference import PQL_FIELD_HINT
 from plane_mcp.toolkit import (
     Action,
+    ProjectIdentifiers,
     build_annotations,
     build_description,
+    build_web_url,
     coerce_list,
     envelope,
     ids_of,
@@ -42,6 +44,7 @@ from plane_mcp.toolkit import (
     opt,
     pql_failure,
     rich_text,
+    with_web_url,
 )
 
 logger = get_logger(__name__)
@@ -152,7 +155,9 @@ FOOTER = (
     "fields is a sparse fieldset: use `project`, not project_id, and `description_html`, not "
     "description.\n"
     f"count group_by and sub_group_by accept: {', '.join(GROUP_BY_VALUES)}. These are grouping "
-    "keys only -- they are not PQL filter fields, and filtering on state__group is rejected."
+    "keys only -- they are not PQL filter fields, and filtering on state__group is rejected.\n"
+    "Work items come back with web_url, the item's link in the Plane web app -- use it rather than "
+    "building one. It is left out when the result lacks a field it needs."
 )
 
 LEGACY = {
@@ -237,6 +242,10 @@ def register(mcp: FastMCP) -> None:
         archive: bool | None = None,
     ) -> WorkItem | WorkItemDetail | WorkItemSearch | dict[str, Any] | list[Any] | str | None:
         client, workspace_slug = get_plane_client_context()
+        identifiers = ProjectIdentifiers(client, workspace_slug)
+
+        def linked(item: Any) -> Any:
+            return with_web_url(item, identifiers)
 
         if error := one_of("priority", priority, PRIORITIES):
             return error
@@ -307,7 +316,9 @@ def register(mcp: FastMCP) -> None:
                 if failure:
                     return failure
                 raise
-            return envelope(response, opt(fields))
+            page = envelope(response, opt(fields))
+            page["results"] = [linked(item) for item in page["results"]]
+            return page
 
         if action == "count":
             scoped = _scoped_pql(pql, project_id)
@@ -328,7 +339,16 @@ def register(mcp: FastMCP) -> None:
         if action == "search":
             if not query:
                 return missing(action, "query")
-            return client.work_items.search(workspace_slug=workspace_slug, query=query, params=retrieve_params())
+            found = client.work_items.search(workspace_slug=workspace_slug, query=query, params=retrieve_params())
+            for hit in getattr(found, "issues", None) or []:
+                url = build_web_url(
+                    getattr(hit, "workspace__slug", None) or workspace_slug,
+                    getattr(hit, "project__identifier", None),
+                    getattr(hit, "sequence_id", None),
+                )
+                if url:
+                    hit.web_url = url
+            return found
 
         if action == "retrieve_by_identifier":
             if not workitem_identifier:
@@ -339,11 +359,13 @@ def register(mcp: FastMCP) -> None:
                     f"Error: invalid work item identifier {workitem_identifier!r}. "
                     "Expected PROJECT-N, for example ENG-42."
                 )
-            return client.work_items.retrieve_by_identifier(
-                workspace_slug=workspace_slug,
-                project_identifier=head,
-                issue_identifier=int(sequence),
-                params=retrieve_params(),
+            return linked(
+                client.work_items.retrieve_by_identifier(
+                    workspace_slug=workspace_slug,
+                    project_identifier=head,
+                    issue_identifier=int(sequence),
+                    params=retrieve_params(),
+                )
             )
 
         if not project_id:
@@ -352,29 +374,35 @@ def register(mcp: FastMCP) -> None:
         if action == "create":
             if not name:
                 return missing(action, "name")
-            return client.work_items.create(
-                workspace_slug=workspace_slug,
-                project_id=project_id,
-                data=CreateWorkItem(**write_payload()),
+            return linked(
+                client.work_items.create(
+                    workspace_slug=workspace_slug,
+                    project_id=project_id,
+                    data=CreateWorkItem(**write_payload()),
+                )
             )
 
         if not workitem_id:
             return missing(action, "workitem_id")
 
         if action == "retrieve":
-            return client.work_items.retrieve(
-                workspace_slug=workspace_slug,
-                project_id=project_id,
-                work_item_id=workitem_id,
-                params=retrieve_params(),
+            return linked(
+                client.work_items.retrieve(
+                    workspace_slug=workspace_slug,
+                    project_id=project_id,
+                    work_item_id=workitem_id,
+                    params=retrieve_params(),
+                )
             )
 
         if action == "update":
-            return client.work_items.update(
-                workspace_slug=workspace_slug,
-                project_id=project_id,
-                work_item_id=workitem_id,
-                data=UpdateWorkItem(**write_payload()),
+            return linked(
+                client.work_items.update(
+                    workspace_slug=workspace_slug,
+                    project_id=project_id,
+                    work_item_id=workitem_id,
+                    data=UpdateWorkItem(**write_payload()),
+                )
             )
 
         if action == "delete":

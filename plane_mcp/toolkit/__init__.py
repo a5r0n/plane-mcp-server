@@ -15,6 +15,7 @@ The modules split by *when* they act:
     runtime     call time -- validate parameters, shape SDK payloads
     mentions    call time -- render `@[uuid]` into Plane's mention markup, and back
     paging      response time -- Plane's pagination envelope and PQL failures
+    weburl      response time -- a work item's link in the Plane web app
     governance  refusal time -- recognise a workspace-owned resource, read its flag
     transforms  listing time -- reshape the advertised catalogue
 
@@ -62,16 +63,19 @@ from plane_mcp.toolkit.spec import (
     build_description,
 )
 from plane_mcp.toolkit.transforms import StripOutputSchemas
+from plane_mcp.toolkit.weburl import ProjectIdentifiers, build_web_url, with_web_url
 
 __all__ = [
     "MENTION_TOKEN",
     "WORK_ITEM_TYPES",
     "Action",
+    "ProjectIdentifiers",
     "StripOutputSchemas",
     "action_names",
     "as_params",
     "build_annotations",
     "build_description",
+    "build_web_url",
     "coerce_list",
     "dump_results",
     "envelope",
@@ -96,5 +100,6 @@ __all__ = [
     "unmentionable",
     "workspace_owns",
     "workspace_owns_resource",
+    "with_web_url",
     "workitem_page",
 ]
