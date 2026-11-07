@@ -126,6 +126,23 @@ def test_failed_lookup_omits_web_url_and_still_answers(registered, spy):
     assert "web_url" not in result.model_dump()
 
 
+def test_failed_lookup_is_tried_once_per_list(registered, spy):
+    spy.returns["work_items.list"] = _page(_item(), _item(sequence_id=8), _item(sequence_id=9))
+    spy.returns["projects.retrieve"] = HttpError("forbidden", status_code=403)
+    page = registered["workitem"].fn(action="list", project_id=PROJECT)
+    assert all("web_url" not in r for r in page["results"])
+    assert spy.recorder.methods.count("projects.retrieve") == 1
+
+
+def test_failed_lookup_is_retried_on_the_next_call(registered, spy):
+    spy.returns["work_items.retrieve"] = _item()
+    spy.returns["projects.retrieve"] = HttpError("forbidden", status_code=403)
+    registered["workitem"].fn(action="retrieve", project_id=PROJECT, workitem_id="w")
+    _with_project(spy)
+    result = registered["workitem"].fn(action="retrieve", project_id=PROJECT, workitem_id="w")
+    assert result.web_url == EXPECTED
+
+
 def test_missing_workspace_slug_omits_web_url():
     assert weburl.build_web_url("", "ENG", 7) is None
 

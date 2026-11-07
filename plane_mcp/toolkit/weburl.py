@@ -57,6 +57,7 @@ class ProjectIdentifiers:
         self._client = client
         self._workspace_slug = workspace_slug
         self._api = os.getenv("PLANE_INTERNAL_BASE_URL") or os.getenv("PLANE_BASE_URL") or ""
+        self._failed: set[str] = set()  # lookups that failed in this call; not cached past it
 
     def of(self, project: Any) -> str | None:
         if isinstance(project, dict):  # expand=project already carries it
@@ -69,13 +70,17 @@ class ProjectIdentifiers:
         now = time.monotonic()
         if cached and now - cached[0] < _IDENTIFIER_TTL:
             return cached[1]
+        if project in self._failed:
+            return None
         try:
             identifier = self._client.projects.retrieve(workspace_slug=self._workspace_slug, project_id=project)
             identifier = getattr(identifier, "identifier", None)
         except Exception as exc:  # a link is a convenience; never fail the call for it
             logger.warning("web_url: project %s lookup failed: %s", project, exc)
+            self._failed.add(project)
             return None
         if not (isinstance(identifier, str) and identifier):
+            self._failed.add(project)
             return None
         _identifiers[key] = (now, identifier)
         return identifier
