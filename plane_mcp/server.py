@@ -10,7 +10,7 @@ from mcp.types import Icon
 from plane_mcp.auth import PlaneHeaderAuthProvider, PlaneOAuthProvider
 from plane_mcp.client import plane_extra_headers
 from plane_mcp.instructions import SERVER_INSTRUCTIONS
-from plane_mcp.middleware import CoerceArguments, PlaneLoggingMiddleware, ValidateActionArguments
+from plane_mcp.middleware import CoerceArguments, PlaneLoggingMiddleware, ReadOnly, ValidateActionArguments
 from plane_mcp.storage import build_token_store
 from plane_mcp.tools import register_tools
 
@@ -55,10 +55,12 @@ def get_allowed_client_redirect_uris() -> list[str]:
 LOG_PAYLOADS = os.getenv("LOG_PAYLOADS", "true").lower() == "true"
 
 
-def _configured(mcp: FastMCP) -> FastMCP:
+def _configured(mcp: FastMCP, *, read_only: bool = False) -> FastMCP:
     """The middleware stack and tools every transport shares."""
     plane_extra_headers()  # fail at startup, not on the first call, if PLANE_EXTRA_HEADERS is malformed
     mcp.add_middleware(PlaneLoggingMiddleware(include_payloads=LOG_PAYLOADS))
+    if read_only:
+        mcp.add_middleware(ReadOnly())
     mcp.add_middleware(CoerceArguments())
     mcp.add_middleware(ValidateActionArguments())
     register_tools(mcp)
@@ -87,15 +89,15 @@ def get_oauth_mcp(base_path: str = "/") -> FastMCP:
     return _configured(oauth_mcp)
 
 
-def get_header_mcp():
+def get_header_mcp(*, read_only: bool = False):
     header_mcp = FastMCP(
-        "Plane MCP Server (header-http)",
+        "Plane MCP Server (header-http, read-only)" if read_only else "Plane MCP Server (header-http)",
         instructions=SERVER_INSTRUCTIONS,
         auth=PlaneHeaderAuthProvider(
             required_scopes=["read", "write"],
         ),
     )
-    return _configured(header_mcp)
+    return _configured(header_mcp, read_only=read_only)
 
 
 def get_stdio_mcp():

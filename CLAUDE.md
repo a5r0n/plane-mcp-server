@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Plane MCP Server — a Python-based Model Context Protocol server that exposes Plane's project management API as MCP tools. Built on FastMCP with the official `plane-sdk`. Supports three transport modes: stdio (local), HTTP (with OAuth or header auth), and SSE (legacy).
+Plane MCP Server — a Python-based Model Context Protocol server that exposes Plane's project management API as MCP tools. Built on FastMCP with the official `plane-sdk`. Supports four modes: stdio (local), HTTP (with OAuth or header auth), `api-key` (header auth only, self-hosted), and SSE (legacy).
 
 ## Common Commands
 
@@ -38,9 +38,10 @@ ruff check plane_mcp/
 
 ### Entry Point & Transport Modes
 
-`plane_mcp/__main__.py` parses a positional arg (`stdio`, `http`, or `sse`) and launches the corresponding server:
+`plane_mcp/__main__.py` parses a positional arg (`stdio`, `http`, `api-key` or `sse`) and launches the corresponding server:
 - **stdio**: Requires `PLANE_API_KEY` + `PLANE_WORKSPACE_SLUG` env vars. Runs locally.
 - **http**: Starts on port 8211 with two auth endpoints — OAuth (`/oauth/mcp`) and header-based PAT (`/http/api-key/mcp`).
+- **api-key**: Port 8211, header auth only: `/http/api-key/mcp`, `/http/api-key/read-only/mcp` (the `ReadOnly` middleware) and `/healthz`. No OAuth, SSE or Redis.
 - **sse**: Legacy OAuth-only SSE transport.
 
 ### Server Factories (`server.py`)
@@ -54,6 +55,7 @@ Ordered as registered; the earlier one wraps the later:
 | Middleware | Does |
 |---|---|
 | `PlaneLoggingMiddleware` | structured logging, plus the tool name |
+| `ReadOnly` | read-only header server only: refuses any call that does not resolve to an action declared `read=True`; fails closed |
 | `CoerceArguments` | repairs arguments a client encoded as strings, before validation (`coercion.py`) |
 | `ValidateActionArguments` | refuses a call with no `action`, and arguments the chosen action does not accept, from the `ACTIONS` declaration |
 
@@ -77,7 +79,7 @@ Coercion runs before validation so an argument is judged by the value it repairs
 ### Authentication (`auth/`)
 
 - `PlaneOAuthProvider` — Full OAuth flow with token verification against the Plane API.
-- `PlaneHeaderAuthProvider` — Simple header-based auth using `x-api-key` and `x-workspace-slug` headers.
+- `PlaneHeaderAuthProvider` — Simple header-based auth using `x-api-key` and `x-workspace-slug` headers. A key Plane accepts is cached for 60s (keyed by a hash, never the raw key); a rejection is not cached.
 
 ### Tools (`tools/`)
 

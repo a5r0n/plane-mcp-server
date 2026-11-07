@@ -15,6 +15,7 @@ stray module.
 from __future__ import annotations
 
 from types import ModuleType
+from typing import NamedTuple
 
 from plane_mcp.tools import (
     collection,
@@ -88,6 +89,19 @@ RESOURCES: tuple[ModuleType, ...] = (
 def action_arguments() -> dict[str, dict[str, frozenset[str]]]:
     """Tool name -> action name -> the arguments that action accepts."""
     return {mod.NAME: {a.name: frozenset(a.requires) | frozenset(a.optional) for a in mod.ACTIONS} for mod in RESOURCES}
+
+
+class ActionSet(NamedTuple):
+    all: frozenset[str]
+    read: frozenset[str]
+
+
+def read_actions() -> dict[str, ActionSet]:
+    """Tool name -> its actions, and those of them declared reads."""
+    return {
+        mod.NAME: ActionSet(frozenset(a.name for a in mod.ACTIONS), frozenset(a.name for a in mod.ACTIONS if a.read))
+        for mod in RESOURCES
+    }
 
 
 def alias_table() -> dict[str, tuple[str, str]]:
