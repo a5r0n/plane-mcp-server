@@ -146,17 +146,29 @@ def test_custom_relations_fail_cleanly_where_the_edition_has_none(registered, sp
     assert "relates_to" in result
 
 
-@pytest.mark.parametrize(
-    ("method", "is_dependency"),
-    [("work_items.relations.delete", True), ("work_items.custom_relations.remove", False)],
-)
-def test_delete_points_at_the_ui_where_the_api_cannot_remove(registered, spy, method, is_dependency):
-    spy.returns[method] = NOT_FOUND
+def test_delete_explains_a_404_on_a_built_in_relation(registered, spy):
+    spy.returns["work_items.relations.delete"] = NOT_FOUND
 
-    result = _call(registered, action="delete", related_workitem_id="wi-2", is_dependency=is_dependency, **ITEM)
+    result = _call(registered, action="delete", related_workitem_id="wi-2", is_dependency=True, **ITEM)
 
-    assert spy.recorder.only().method == method
-    assert result.startswith("Error:") and "web UI" in result
+    assert spy.recorder.only().method == "work_items.relations.delete"
+    assert result.startswith("Error: Plane answered 404: these work items have no relation")
+    assert "list action" in result
+
+
+def test_delete_without_is_dependency_points_at_it(registered, spy):
+    spy.returns["work_items.custom_relations.remove"] = NOT_FOUND
+
+    result = _call(registered, action="delete", related_workitem_id="wi-2", **ITEM)
+
+    assert spy.recorder.only().method == "work_items.custom_relations.remove"
+    assert result.startswith("Error: Plane answered 404:") and "is_dependency=true" in result
+
+
+def test_delete_succeeds_silently(registered, spy):
+    result = _call(registered, action="delete", related_workitem_id="wi-2", is_dependency=True, **ITEM)
+
+    assert result is None
 
 
 def test_delete_sends_the_field_plane_reads(registered, spy):
