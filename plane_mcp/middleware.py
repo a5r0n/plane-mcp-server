@@ -91,6 +91,9 @@ class ReadOnly(Middleware):
             resource, action = alias
         else:
             resource, action = tool, arguments.get("action")
+        if not isinstance(action, str):
+            # A malformed action (a list, a number) names no read: treat it as missing.
+            action = None
         reads = self._reads.get(resource)
         if reads is None:
             return f"Error: {tool} is not available on this read-only server."

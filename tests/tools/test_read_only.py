@@ -58,6 +58,18 @@ def test_anything_unrecognised_is_refused(rejection, tool, arguments):
     assert rejection(tool, arguments)
 
 
+@pytest.mark.parametrize("action", [["delete"], {"name": "delete"}, 3, None])
+def test_a_non_string_action_is_refused_as_missing(rejection, action):
+    message = rejection("workitem", {"action": action})
+    assert message and "read-only" in message and "no action" in message
+
+
+def test_a_non_string_action_is_refused_end_to_end(spy):
+    answer = _call("workitem", {"action": ["delete"], "project_id": "p", "workitem_id": "w"})
+    assert "read-only" in answer
+    assert spy.recorder.calls == []
+
+
 def _call(tool: str, arguments: dict) -> str:
     server = server_module._configured(FastMCP("read-only"), read_only=True)
 
