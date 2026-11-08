@@ -169,7 +169,7 @@ unchanged.
 | `PLANE_API_KEY` | stdio | API key |
 | `PLANE_WORKSPACE_SLUG` | stdio | Target workspace |
 | `PLANE_BASE_URL` | optional | Plane API URL (default `https://api.plane.so`) |
-| `PLANE_WEB_URL` | optional | Plane web app URL for work items' `web_url`, when it differs from `PLANE_BASE_URL` (default: `PLANE_BASE_URL`; `https://app.plane.so` for Plane Cloud) |
+| `PLANE_WEB_URL` | optional | Plane web app URL for work items' `web_url`, when it differs from `PLANE_BASE_URL` (default: `PLANE_BASE_URL`; `https://app.plane.so` for Plane Cloud). When set, attachment `download_url` links are signed for its host, so a server that reaches Plane on an internal URL still returns links its callers can fetch |
 | `PLANE_EXTRA_HEADERS` | optional, all transports | Extra headers sent on every request to the Plane origin — a JSON object or `Name: value` lines |
 
 The remote transports carry credentials in the connection — the OAuth flow or the
