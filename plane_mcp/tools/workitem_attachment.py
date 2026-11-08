@@ -15,6 +15,7 @@ from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import requests
 from fastmcp import FastMCP
+from fastmcp.utilities.logging import get_logger
 from fastmcp.utilities.types import Image
 from plane.errors.errors import HttpError
 
@@ -28,9 +29,11 @@ from plane_mcp.attachments import (
     attachment_to_dict,
     fetch_validated_get,
 )
-from plane_mcp.client import PlaneSession, get_plane_client_context, is_plane_origin
+from plane_mcp.client import PlaneSession, _origin, get_plane_client_context, is_plane_origin
 from plane_mcp.toolkit import Action, build_annotations, build_description, missing, needs
-from plane_mcp.toolkit.weburl import web_base
+from plane_mcp.toolkit.weburl import WEB_URL_ENV, web_base
+
+logger = get_logger(__name__)
 
 NAME = "workitem_attachment"
 TITLE = "Work item attachments"
@@ -102,6 +105,28 @@ def _download_url(client, workspace_slug: str, project_id: str, workitem_id: str
         )
     except HttpError as exc:
         raise ValueError(f"Failed to get download URL: HTTP {exc.status_code} - {exc.response}") from exc
+
+
+def _public_download_url(client, workspace_slug: str, project_id: str, workitem_id: str, attachment_id: str) -> str:
+    """A download URL signed for PLANE_WEB_URL's host, when the API is reached on another origin.
+
+    Plane signs for the request's Host, and a presigned GET signs the host, so it cannot be moved after.
+    """
+    api = client.work_items.attachments
+    url = api._build_url(f"{workspace_slug}/projects/{project_id}/work-items/{workitem_id}/attachments/{attachment_id}")
+    if os.getenv(WEB_URL_ENV, "").strip() and _origin(url) != _origin(web_base()):
+        web = urlsplit(web_base())
+        headers = {**api._headers(), "Host": web.netloc, "X-Forwarded-Proto": web.scheme}
+        try:
+            response = api.session.get(url, headers=headers, allow_redirects=False, timeout=api.config.timeout)
+            if response.is_redirect:
+                return response.headers["Location"]
+            reason = f"HTTP {response.status_code}"
+        except requests.RequestException as exc:
+            reason = str(exc)
+        # e.g. a restricted ALLOWED_HOSTS; the API's own signing is still right for callers beside the server
+        logger.warning("download_url: signing for %s failed (%s); using the API host", web.netloc, reason)
+    return _download_url(client, workspace_slug, project_id, workitem_id, attachment_id)
 
 
 def _read(client, workspace_slug: str, project_id: str, workitem_id: str, attachment_id: str):
@@ -287,7 +312,7 @@ def register(mcp: FastMCP) -> None:
             attachment = _find(client, workspace_slug, project_id, workitem_id, attachment_id)
             attrs = attachment.attributes or {}
             return {
-                "download_url": _download_url(client, workspace_slug, project_id, workitem_id, attachment_id),
+                "download_url": _public_download_url(client, workspace_slug, project_id, workitem_id, attachment_id),
                 "attachment_id": attachment_id,
                 "name": attrs.get("name") or attachment_id,
             }
