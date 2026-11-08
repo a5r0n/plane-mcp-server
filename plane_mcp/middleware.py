@@ -49,7 +49,8 @@ class ValidateActionArguments(Middleware):
         if by_action is None:
             # A retired name, or not ours at all. Either way not our business.
             return None
-        if "action" not in arguments:
+        # A malformed action (a list, a number) names nothing: answer it as missing.
+        if not isinstance(arguments.get("action"), str):
             if len(by_action) == 1:
                 # A single-operation tool takes no action parameter (its schema
                 # omits it), so there is nothing to choose: validate the
@@ -181,7 +182,7 @@ class PlaneLoggingMiddleware(StructuredLoggingMiddleware):
             resource = name
             action = (getattr(context.message, "arguments", None) or {}).get("action")
         fields = {"tool": name, "resource": resource}
-        if action:
+        if action and isinstance(action, str):
             fields["action"] = action
         return fields
 
