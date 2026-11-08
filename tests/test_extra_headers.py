@@ -413,6 +413,26 @@ def test_a_redirect_to_another_scheme_on_the_same_host_drops_them(extra, routed)
     assert [_carries(r) for r in sent] == [True, False]
 
 
+@pytest.mark.parametrize("configured", [False, True], ids=["no-extra-headers", "extra-headers"])
+def test_a_redirect_off_the_plane_origin_drops_the_api_key_and_one_on_it_keeps_it(configured, routed, monkeypatch):
+    if configured:
+        monkeypatch.setenv("PLANE_EXTRA_HEADERS", f"CF-Access-Client-Secret: {SECRET}")
+    sent, routes = routed
+    routes[f"{PLANE}/api/v1/users/me/"] = f"{PLANE}/api/v1/users/me/again/"
+    routes[f"{PLANE}/api/v1/users/me/again/"] = f"{STORAGE}/elsewhere"
+    try:
+        get_plane_client_context().client.users.get_me()
+    except Exception:
+        pass
+
+    assert [r.url for r in sent] == [
+        f"{PLANE}/api/v1/users/me/",
+        f"{PLANE}/api/v1/users/me/again/",
+        f"{STORAGE}/elsewhere",
+    ]
+    assert [r.headers.get("X-Api-Key") for r in sent] == ["the-key", "the-key", None]
+
+
 def test_an_attachment_read_redirected_off_the_plane_origin_drops_them(extra, routed, monkeypatch):
     sent, routes = routed
     routes[f"{PLANE}/a.txt"] = f"{STORAGE}/a.txt"
