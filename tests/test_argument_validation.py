@@ -94,6 +94,13 @@ def test_a_call_that_chose_no_action_is_told_which_actions_exist(rejection):
         assert action in message, f"{action} missing from the refusal"
 
 
+@pytest.mark.parametrize("action", [["delete"], {"name": "delete"}, 3, None])
+def test_a_malformed_action_is_answered_as_missing(rejection, action):
+    """An unhashable action used to raise TypeError out of the membership test."""
+    message = rejection("workitem", {"action": action, "project_id": "p"})
+    assert message and "requires an action" in message
+
+
 def test_every_resource_names_its_actions_when_none_is_chosen(rejection):
     """A resource left out would answer the one question the caller has with silence."""
     for tool, actions in action_arguments().items():
@@ -209,6 +216,13 @@ def test_a_call_with_no_action_never_reaches_plane():
     """The refusal has to replace the schema error, not arrive after a wasted call."""
     answer = _call("workitem", {"project_id": "p"})
     assert "requires an action" in answer
+    assert "403" not in answer
+
+
+def test_a_list_action_is_answered_with_the_action_list():
+    answer = _call("workitem", {"action": ["delete"], "project_id": "p", "workitem_id": "w"})
+    assert "requires an action" in answer
+    assert "unhashable" not in answer
     assert "403" not in answer
 
 

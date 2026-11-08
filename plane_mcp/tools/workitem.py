@@ -153,7 +153,7 @@ FOOTER = (
     "To clear a field on update: assignees=[] or labels=[], and start_date=null or "
     "target_date=null. A field you leave out is not changed.\n"
     "fields is a sparse fieldset: use `project`, not project_id, and `description_html`, not "
-    "description.\n"
+    "description. It may name web_url, and the result holds only the fields named.\n"
     f"count group_by and sub_group_by accept: {', '.join(GROUP_BY_VALUES)}. These are grouping "
     "keys only -- they are not PQL filter fields, and filtering on state__group is rejected.\n"
     "Work items come back with web_url, the item's link in the Plane web app -- use it rather than "
@@ -174,6 +174,28 @@ LEGACY = {
     "manage_work_item_assignee": "manage_assignee",
     "manage_work_item_label": "manage_label",
 }
+
+
+# web_url is built here, not by Plane, from these two fields.
+_WEB_URL_INPUTS = ("project", "sequence_id")
+
+
+def _sparse(fields: str) -> tuple[set[str] | None, str | None]:
+    """The fields the caller asked for, and the fieldset to send Plane for them.
+
+    Plane drops a name it does not know, so `web_url` is swapped for the fields it is built from.
+    """
+    requested = {name.strip() for name in fields.split(",")} - {""} if fields else set()
+    if not requested:
+        return None, None
+    sent = requested - {"web_url"} | (set(_WEB_URL_INPUTS) if "web_url" in requested else set())
+    return requested, ",".join(sorted(sent))
+
+
+def _only(item: Any, requested: set[str]) -> dict[str, Any]:
+    """`item` reduced to the requested fields, `web_url` included when it was built."""
+    dumped = item.model_dump() if hasattr(item, "model_dump") else dict(item)
+    return {name: value for name, value in dumped.items() if name in requested}
 
 
 def _scoped_pql(pql: str, project_id: str) -> str:
@@ -244,8 +266,15 @@ def register(mcp: FastMCP) -> None:
         client, workspace_slug = get_plane_client_context()
         identifiers = ProjectIdentifiers(client, workspace_slug)
 
+        requested, plane_fields = _sparse(fields)
+
         def linked(item: Any) -> Any:
             return with_web_url(item, identifiers)
+
+        def answered(item: Any) -> Any:
+            """The item linked, then reduced to the sparse fieldset when one was asked for."""
+            item = linked(item)
+            return _only(item, requested) if requested else item
 
         if error := one_of("priority", priority, PRIORITIES):
             return error
@@ -257,7 +286,7 @@ def register(mcp: FastMCP) -> None:
         def retrieve_params() -> RetrieveQueryParams:
             return RetrieveQueryParams(
                 expand=opt(expand),
-                fields=opt(fields),
+                fields=plane_fields,
                 external_id=opt(external_id),
                 external_source=opt(external_source),
                 order_by=opt(order_by),
@@ -296,7 +325,7 @@ def register(mcp: FastMCP) -> None:
                 per_page=opt(per_page),
                 cursor=opt(cursor),
                 expand=opt(expand),
-                fields=opt(fields),
+                fields=plane_fields,
                 external_id=opt(external_id),
                 external_source=opt(external_source),
             )
@@ -316,8 +345,8 @@ def register(mcp: FastMCP) -> None:
                 if failure:
                     return failure
                 raise
-            page = envelope(response, opt(fields))
-            page["results"] = [linked(item) for item in page["results"]]
+            page = envelope(response, plane_fields)
+            page["results"] = [answered(item) for item in page["results"]]
             return page
 
         if action == "count":
@@ -359,7 +388,7 @@ def register(mcp: FastMCP) -> None:
                     f"Error: invalid work item identifier {workitem_identifier!r}. "
                     "Expected PROJECT-N, for example ENG-42."
                 )
-            return linked(
+            return answered(
                 client.work_items.retrieve_by_identifier(
                     workspace_slug=workspace_slug,
                     project_identifier=head,
@@ -386,7 +415,7 @@ def register(mcp: FastMCP) -> None:
             return missing(action, "workitem_id")
 
         if action == "retrieve":
-            return linked(
+            return answered(
                 client.work_items.retrieve(
                     workspace_slug=workspace_slug,
                     project_id=project_id,

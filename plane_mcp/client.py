@@ -100,8 +100,12 @@ async def scope_extra_headers_hook(request) -> None:
     scope_extra_headers(str(request.url), request.headers)
 
 
+# The SDK sets the API key on every request; it must never follow a redirect off Plane.
+_KEY_HEADER = "X-Api-Key"
+
+
 class PlaneSession(requests.Session):
-    """A session that sends PLANE_EXTRA_HEADERS to Plane origins only, redirects included."""
+    """A session that sends PLANE_EXTRA_HEADERS and the API key to Plane origins only, redirects included."""
 
     def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
         prepared = super().prepare_request(request)
@@ -109,15 +113,17 @@ class PlaneSession(requests.Session):
         return prepared
 
     def rebuild_auth(self, prepared_request: requests.PreparedRequest, response: requests.Response) -> None:
-        # requests strips only Authorization on a cross-host redirect; the extra headers need the same.
+        # requests strips only Authorization on a cross-host redirect; the key and extra headers need the same.
         super().rebuild_auth(prepared_request, response)
         scope_extra_headers(prepared_request.url, prepared_request.headers)
+        if not is_plane_origin(prepared_request.url):
+            prepared_request.headers.pop(_KEY_HEADER, None)
 
 
 def _use_plane_sessions(client: PlaneClient) -> None:
     """Make every requests session the SDK client owns a PlaneSession.
 
-    plane-sdk has no hook for extra headers, and gives each resource its own plain session.
+    plane-sdk has no hook for headers or redirects, and gives each resource its own plain session.
     """
     seen: set[int] = set()
     stack: list[Any] = [client]
@@ -229,8 +235,7 @@ def get_plane_client_context() -> PlaneClientContext:
             base_url=base_url,
             api_key=api_key,
         )
-    if plane_extra_headers():
-        _use_plane_sessions(client)
+    _use_plane_sessions(client)
 
     return PlaneClientContext(
         client=client,

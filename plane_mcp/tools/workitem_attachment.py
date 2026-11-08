@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import mimetypes
 import os
+import shlex
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit, urlunsplit
 
 import requests
 from fastmcp import FastMCP
@@ -27,8 +28,9 @@ from plane_mcp.attachments import (
     attachment_to_dict,
     fetch_validated_get,
 )
-from plane_mcp.client import PlaneSession, get_plane_client_context
+from plane_mcp.client import PlaneSession, get_plane_client_context, is_plane_origin
 from plane_mcp.toolkit import Action, build_annotations, build_description, missing, needs
+from plane_mcp.toolkit.weburl import web_base
 
 NAME = "workitem_attachment"
 TITLE = "Work item attachments"
@@ -43,6 +45,17 @@ ACTIONS = (
     ),
     Action("download_url", ("project_id", "workitem_id", "attachment_id"), read=True),
     Action("upload_from_url", ("project_id", "workitem_id", "url"), ("name",), open_world=True),
+    Action(
+        "upload_begin",
+        ("project_id", "workitem_id", "name", "size"),
+        ("content_type",),
+        note="uploads a local file: returns a curl command that posts it to storage; run it, then upload_complete",
+    ),
+    Action(
+        "upload_complete",
+        ("project_id", "workitem_id", "attachment_id"),
+        note="after the upload_begin curl succeeds; until then the attachment does not show",
+    ),
     Action("delete", ("project_id", "workitem_id", "attachment_id"), destructive=True),
 )
 
@@ -50,7 +63,10 @@ FOOTER = (
     f"read supports PNG/JPEG/GIF/WEBP up to {IMAGE_READ_LIMIT // 1024 // 1024} MB and "
     f"TXT/MD/CSV/HTML/XML/YAML/JSON up to {TEXT_READ_LIMIT // 1024 // 1024} MB. "
     "Get attachment_id from the list action. upload_from_url fetches the file server-side, so "
-    "the URL must be reachable without authentication and must not resolve to a private address."
+    "the URL must be reachable without authentication and must not resolve to a private address. "
+    "For a file on your own machine use upload_begin with its name and exact size in bytes, run the "
+    "curl it returns with FILE set to the file's path, then call upload_complete with the "
+    "attachment_id it returned. The presigned upload expires, so run it straight away."
 )
 
 LEGACY = {
@@ -162,6 +178,65 @@ def _upload(client, workspace_slug: str, project_id: str, workitem_id: str, url:
     return attachment_to_dict(attachment, workspace_slug)
 
 
+def _reachable(url: str) -> str:
+    """`url` moved onto the web app's origin when Plane signed it for an API origin a caller may not reach.
+
+    The POST policy signs the bucket, key and fields, not the host, so the move keeps it valid.
+    """
+    if not is_plane_origin(url):
+        return url
+    web = urlsplit(web_base())
+    return urlunsplit(urlsplit(url)._replace(scheme=web.scheme, netloc=web.netloc))
+
+
+def _curl(url: str, fields: dict[str, Any]) -> str:
+    """A curl command that posts $FILE with the presigned fields; the file must come last."""
+    parts = ["curl", "--fail-with-body", "-sS"]
+    for key, value in fields.items():
+        # --form-string: a value starting with @ or < is sent as text, never read as a file.
+        parts += ["--form-string", shlex.quote(f"{key}={value}")]
+    parts += ["-F", '"file=@$FILE"', shlex.quote(url)]
+    return " ".join(parts)
+
+
+def _begin(client, workspace_slug: str, project_id: str, workitem_id: str, name: str, size: int, content_type: str):
+    if size <= 0:
+        return "Error: size is the file's exact size in bytes, and must be greater than 0."
+    if size > UPLOAD_SIZE_LIMIT:
+        return f"Error: the file is {size} bytes; the maximum is {UPLOAD_SIZE_LIMIT // 1024 // 1024} MB."
+    content_type = content_type or mimetypes.guess_type(name)[0] or "application/octet-stream"
+    try:
+        # The SDK's create() cannot parse this response (the attachment is nested), so post as its upload does.
+        raw = client.work_items.attachments._post(
+            f"{workspace_slug}/projects/{project_id}/work-items/{workitem_id}/attachments",
+            {"name": name, "type": content_type, "size": size},
+        )
+    except HttpError as exc:
+        raise ValueError(f"Failed to create attachment: HTTP {exc.status_code} - {exc.response}") from exc
+    upload = raw["upload_data"]
+    url = _reachable(upload["url"])
+    fields = upload.get("fields") or {}
+    return {
+        "attachment_id": str(raw["asset_id"]),
+        "upload_url": url,
+        "upload_fields": fields,
+        "curl": _curl(url, fields),
+        "next": "Run FILE=<path to the file> first, then curl, then upload_complete with this attachment_id.",
+    }
+
+
+def _complete(client, workspace_slug: str, project_id: str, workitem_id: str, attachment_id: str):
+    try:
+        # Plane answers 204 with no body, which the SDK's update() cannot parse.
+        client.work_items.attachments._patch(
+            f"{workspace_slug}/projects/{project_id}/work-items/{workitem_id}/attachments/{attachment_id}",
+            {"is_uploaded": True},
+        )
+    except HttpError as exc:
+        raise ValueError(f"Failed to mark attachment uploaded: HTTP {exc.status_code} - {exc.response}") from exc
+    return attachment_to_dict(_find(client, workspace_slug, project_id, workitem_id, attachment_id), workspace_slug)
+
+
 def register(mcp: FastMCP) -> None:
     @mcp.tool(
         name=NAME,
@@ -169,12 +244,14 @@ def register(mcp: FastMCP) -> None:
         annotations=build_annotations(TITLE, ACTIONS),
     )
     def workitem_attachment(
-        action: Literal["list", "read", "download_url", "upload_from_url", "delete"],
+        action: Literal["list", "read", "download_url", "upload_from_url", "upload_begin", "upload_complete", "delete"],
         project_id: str = "",
         workitem_id: str = "",
         attachment_id: str = "",
         url: str = "",
         name: str = "",
+        size: int = 0,
+        content_type: str = "",
     ) -> Image | list[dict[str, Any]] | dict[str, Any] | str | None:
         client, workspace_slug = get_plane_client_context()
 
@@ -192,8 +269,16 @@ def register(mcp: FastMCP) -> None:
                 return missing(action, "url")
             return _upload(client, workspace_slug, project_id, workitem_id, url, name)
 
+        if action == "upload_begin":
+            if error := needs(action, name=name, size=size):
+                return error
+            return _begin(client, workspace_slug, project_id, workitem_id, name, size, content_type)
+
         if not attachment_id:
             return missing(action, "attachment_id")
+
+        if action == "upload_complete":
+            return _complete(client, workspace_slug, project_id, workitem_id, attachment_id)
 
         if action == "read":
             return _read(client, workspace_slug, project_id, workitem_id, attachment_id)

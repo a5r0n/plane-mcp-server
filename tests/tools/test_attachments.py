@@ -553,3 +553,94 @@ def test_upload_from_url_preserves_matrix_params_in_the_request_path(attachment_
     )
 
     assert captured_paths == ["/file.png;v=2?sig=x"]
+
+
+# --- upload_begin / upload_complete: a local file, posted by the caller ------
+
+
+UPLOAD = {
+    "asset_id": ATTACHMENT,
+    "attachment": {"asset": "a"},
+    "upload_data": {
+        "url": "https://storage.example.com/uploads",
+        "fields": {"key": "ws/a-report.pdf", "policy": "@not-a-file", "Content-Type": "application/pdf"},
+    },
+}
+
+
+def _begin(tool, **overrides):
+    args = {"action": "upload_begin", "project_id": PROJECT, "workitem_id": WORK_ITEM, "name": "report.pdf"}
+    return tool(**{**args, "size": 1234, **overrides})
+
+
+def test_upload_begin_creates_the_attachment_and_returns_a_runnable_curl(attachment_tool):
+    tool, spy, _ = attachment_tool
+    spy.returns["work_items.attachments._post"] = UPLOAD
+
+    result = _begin(tool)
+
+    call = spy.recorder.only()
+    assert call.kwargs["data"] == {"name": "report.pdf", "type": "application/pdf", "size": 1234}
+    assert result["attachment_id"] == ATTACHMENT
+    assert result["upload_url"] == "https://storage.example.com/uploads"
+    assert result["upload_fields"] == UPLOAD["upload_data"]["fields"]
+    curl = result["curl"]
+    assert "--form-string key=ws/a-report.pdf" in curl
+    # A value starting with @ must never be read as a file path.
+    assert "--form-string policy=@not-a-file" in curl
+    assert curl.index('"file=@$FILE"') > curl.index("Content-Type")
+    assert curl.endswith("https://storage.example.com/uploads")
+
+
+def test_upload_begin_takes_an_explicit_content_type(attachment_tool):
+    tool, spy, _ = attachment_tool
+    spy.returns["work_items.attachments._post"] = UPLOAD
+    _begin(tool, name="blob", content_type="text/csv")
+    assert spy.recorder.only().kwargs["data"]["type"] == "text/csv"
+
+
+@pytest.mark.parametrize("size", [0, -1, module.UPLOAD_SIZE_LIMIT + 1])
+def test_upload_begin_refuses_a_size_outside_the_limit_before_calling_plane(attachment_tool, size):
+    tool, spy, _ = attachment_tool
+    result = _begin(tool, size=size)
+    assert isinstance(result, str) and result.startswith("Error")
+    assert spy.recorder.calls == []
+
+
+def test_upload_begin_moves_a_url_signed_for_the_api_onto_the_web_origin(attachment_tool, monkeypatch):
+    """Plane signs for the host it was called on; an internal one is unreachable for the caller."""
+    tool, spy, _ = attachment_tool
+    monkeypatch.setenv("PLANE_BASE_URL", "http://api:8000")
+    monkeypatch.setenv("PLANE_WEB_URL", "https://plane.example.test")
+    upload = {**UPLOAD, "upload_data": {**UPLOAD["upload_data"], "url": "http://api:8000/uploads"}}
+    spy.returns["work_items.attachments._post"] = upload
+
+    result = _begin(tool)
+
+    assert result["upload_url"] == "https://plane.example.test/uploads"
+    assert result["curl"].endswith("https://plane.example.test/uploads")
+
+
+def test_upload_begin_leaves_a_storage_url_on_another_origin_alone(attachment_tool, monkeypatch):
+    tool, spy, _ = attachment_tool
+    monkeypatch.setenv("PLANE_BASE_URL", "http://api:8000")
+    monkeypatch.setenv("PLANE_WEB_URL", "https://plane.example.test")
+    spy.returns["work_items.attachments._post"] = UPLOAD
+    assert _begin(tool)["upload_url"] == "https://storage.example.com/uploads"
+
+
+def test_upload_complete_marks_it_uploaded_and_returns_the_attachment(attachment_tool):
+    from plane.models.work_items import WorkItemAttachment
+
+    tool, spy, _ = attachment_tool
+    spy.returns["work_items.attachments.list"] = [
+        WorkItemAttachment(id=ATTACHMENT, asset="a", attributes={"name": "report.pdf"}, is_uploaded=True)
+    ]
+
+    result = tool(action="upload_complete", project_id=PROJECT, workitem_id=WORK_ITEM, attachment_id=ATTACHMENT)
+
+    patch = spy.recorder.calls[0]
+    assert patch.method == "work_items.attachments._patch"
+    assert patch.kwargs["endpoint"].endswith(f"/work-items/{WORK_ITEM}/attachments/{ATTACHMENT}")
+    assert patch.kwargs["data"] == {"is_uploaded": True}
+    assert result["id"] == ATTACHMENT
