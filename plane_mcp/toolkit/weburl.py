@@ -1,4 +1,5 @@
-"""Web links for work items: `{web}/{workspace}/browse/{PROJECT}-{seq}/`.
+"""Web links: work items at `{web}/{workspace}/browse/{PROJECT}-{seq}/`, project pages at
+`{web}/{workspace}/projects/{project_id}/pages/{page_id}/`.
 
 Built only from what the result and the configuration carry. A link that cannot
 be built is left out rather than guessed.
@@ -44,6 +45,14 @@ def build_web_url(workspace_slug: Any, project_identifier: Any, sequence_id: Any
     if isinstance(sequence_id, bool) or not isinstance(sequence_id, int):
         return None
     return f"{web_base()}/{workspace_slug}/browse/{project_identifier}-{sequence_id}/"
+
+
+def build_page_web_url(workspace_slug: Any, project_id: Any, page_id: Any) -> str | None:
+    """A project page's web link, or None when any part is missing."""
+    parts = (workspace_slug, project_id, page_id)
+    if not all(isinstance(part, str) and part for part in parts):
+        return None
+    return f"{web_base()}/{workspace_slug}/projects/{project_id}/pages/{page_id}/"
 
 
 def _field(item: Any, name: str) -> Any:
@@ -95,7 +104,17 @@ class ProjectIdentifiers:
 
 def with_web_url(item: Any, identifiers: ProjectIdentifiers) -> Any:
     """Attach `web_url` to a work item model or dict when it can be built; return the item."""
-    url = identifiers.web_url(item)
+    return attach_web_url(item, identifiers.web_url(item))
+
+
+def with_page_web_url(page: Any, workspace_slug: str, project_id: str) -> Any:
+    """Attach `web_url` to a project page model or dict when it can be built; return the page."""
+    page_id = _field(page, "id")
+    return attach_web_url(page, build_page_web_url(workspace_slug, project_id, str(page_id) if page_id else None))
+
+
+def attach_web_url(item: Any, url: str | None) -> Any:
+    """Set `web_url` on a model or dict; a None url leaves the item untouched."""
     if url is None:
         return item
     if isinstance(item, dict):
