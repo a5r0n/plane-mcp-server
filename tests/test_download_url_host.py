@@ -6,8 +6,12 @@ cannot be rebased afterwards: the host has to be right when Plane signs it.
 
 from __future__ import annotations
 
+import asyncio
+from types import SimpleNamespace
+
 import pytest
 import requests
+from fastmcp import FastMCP
 
 from plane_mcp.client import get_plane_client_context, plane_extra_headers
 from plane_mcp.tools import workitem_attachment
@@ -97,3 +101,16 @@ def test_read_keeps_the_api_host(plane, monkeypatch):
 
     (request,) = sent
     assert "Host" not in request.headers
+
+
+def test_the_download_url_action_returns_the_web_host_link(plane, monkeypatch):
+    """Through the registered tool, so the action is held to the public signing, not only the helper."""
+    monkeypatch.setenv("PLANE_WEB_URL", WEB)
+    monkeypatch.setattr(workitem_attachment, "_find", lambda *a: SimpleNamespace(attributes={"name": "a.pdf"}))
+    mcp = FastMCP("download-url")
+    workitem_attachment.register(mcp)
+    tool = asyncio.run(mcp.get_tool(workitem_attachment.NAME))
+
+    result = tool.fn(action="download_url", project_id="p", workitem_id="w", attachment_id="a")
+
+    assert result["download_url"] == "https://plane.example.com/uploads/key?X-Amz-Signature=sig"
