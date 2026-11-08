@@ -47,6 +47,7 @@ from plane_mcp.tools import (
     workitem_link,
     workitem_property,
     workitem_relation,
+    workitem_step,
     workitem_type,
     workspace,
 )
@@ -83,6 +84,7 @@ RESOURCES: tuple[ModuleType, ...] = (
     template,
     collection,
     epic,
+    workitem_step,
 )
 
 

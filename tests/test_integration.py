@@ -76,7 +76,7 @@ async def run_integration_test():
     4. Update work item 2 with work item 1 as parent
     5. Create an epic with the epic tool
     6. Add work item 2 to the epic
-    7. List the epic's children
+    7. List the epic's children, then set, finish and list work item 1's steps
     8. Create a milestone and associate it with the project and work items
     9. Update the milestone to change its name and description
     10. List all milestones in the project
@@ -176,6 +176,22 @@ async def run_integration_test():
         children = extract_result(children_result)["results"]
         print(f"Children of the epic: {[c['id'] for c in children]}")
         assert work_item_2_id in [c["id"] for c in children], children
+
+        # 7b. Give work item 1 a path, finish its first step, and read the current one
+        print("Setting work item 1's steps...")
+        item_1 = {"project_id": project_id, "workitem_id": work_item_1_id}
+        path = extract_result(
+            await client.call_tool(
+                "workitem_step",
+                {"action": "set_path", **item_1, "steps": [{"title": "Plan"}, {"title": "Build"}]},
+            )
+        )
+        path = path["result"] if isinstance(path, dict) else path
+        await client.call_tool("workitem_step", {"action": "finish", **item_1, "step_id": path[0]["id"]})
+        steps = extract_result(await client.call_tool("workitem_step", {"action": "list", **item_1}))
+        assert [s["status"] for s in steps["steps"]] == ["done", "pending"], steps
+        assert steps["current_step"]["id"] == path[1]["id"], steps
+        print("Finished step 1; step 2 is current")
 
         # 8. Create a milestone and associate work items with it.
         # A milestone is named by `title`, and work items are linked afterwards --

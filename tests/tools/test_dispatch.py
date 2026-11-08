@@ -65,6 +65,13 @@ CONDITIONAL: dict[tuple[str, str], dict[str, object]] = {
     ("release", "update_changelog"): {"description_html": "<p>notes</p>"},
     ("release", "manage_workitems"): {"add_ids": "id-1"},
     ("release_label", "list"): {},
+    ("workitem_step", "update"): {"title": "Renamed"},
+    ("workitem_step", "set_path"): {"steps": [{"title": "Plan"}]},
+}
+
+# SDK answers an action needs to see before it will report success.
+RETURNS: dict[tuple[str, str], tuple[str, object]] = {
+    ("workitem_step", "list"): ("work_items._get", {"id": "id-1", "steps": [], "current_step": None}),
 }
 
 # Actions whose guard clause legitimately answers without calling the SDK.
@@ -129,6 +136,9 @@ def test_action_reaches_the_sdk(mod, action, registered, spy):
     if (mod.NAME, action.name) in NEEDS_FIXTURE:
         pytest.skip("needs populated remote state; covered by test_attachments.py")
     tool = registered[mod.NAME]
+    if (mod.NAME, action.name) in RETURNS:
+        method, value = RETURNS[mod.NAME, action.name]
+        spy.returns[method] = value
     result = tool.fn(**_call_args(mod, action, tool))
 
     assert not (isinstance(result, str) and result.startswith("Error:")), (
