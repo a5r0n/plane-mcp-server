@@ -72,6 +72,7 @@ WRITE_FIELDS = (
     "estimate_point",
     "external_source",
     "external_id",
+    "custom_fields",
 )
 QUERY_FIELDS = ("order_by", "per_page", "cursor", "expand", "fields", "external_id", "external_source")
 
@@ -156,6 +157,8 @@ FOOTER = (
     "description. It may name web_url, and the result holds only the fields named.\n"
     f"count group_by and sub_group_by accept: {', '.join(GROUP_BY_VALUES)}. These are grouping "
     "keys only -- they are not PQL filter fields, and filtering on state__group is rejected.\n"
+    "custom_fields: property key to value; null clears a key, a list replaces, keys left out are "
+    "unchanged. Keys come from the custom_field tool; filter with pql prop.<key>.\n"
     "Work items come back with web_url, the item's link in the Plane web app -- use it rather than "
     "building one. It is left out when the result lacks a field it needs."
 )
@@ -204,6 +207,34 @@ def _scoped_pql(pql: str, project_id: str) -> str:
         return pql
     scope = f'project = "{project_id}"'
     return f"({pql}) AND {scope}" if pql else scope
+
+
+def _custom_fields_failure(action: str, exc: HttpError) -> dict[str, Any] | None:
+    """A rejected custom_fields write as a correctable answer, or None for any other error."""
+    body = exc.response
+    if exc.status_code not in (400, 409) or not isinstance(body, dict):
+        return None
+    reasons = body.get("custom_fields")
+    if not isinstance(reasons, dict):
+        return None
+    if exc.status_code == 409:
+        retry = (
+            "The work item exists, so don't create it again: find it (workitem search by name), read the "
+            "custom_field definitions again, then retry workitem update with these keys only."
+            if action == "create"
+            else "Read the custom_field definitions again, then retry workitem update with these keys only."
+        )
+        return {
+            "error": "the work item was saved, but these custom_fields were not: a property or option "
+            "changed while saving",
+            "custom_fields": reasons,
+            "hint": retry,
+        }
+    return {
+        "error": "custom_fields rejected; nothing was saved",
+        "custom_fields": reasons,
+        "hint": f"Fix each key named above (list its definition with custom_field) and retry workitem {action}.",
+    }
 
 
 def register(mcp: FastMCP) -> None:
@@ -262,6 +293,7 @@ def register(mcp: FastMCP) -> None:
         # Tri-state: False publishes a draft, unset leaves the flag alone.
         is_draft: bool | None = None,
         archive: bool | None = None,
+        custom_fields: dict[str, str | float | bool | list[str] | None] | None = None,
     ) -> WorkItem | WorkItemDetail | WorkItemSearch | dict[str, Any] | list[Any] | str | None:
         client, workspace_slug = get_plane_client_context()
         identifiers = ProjectIdentifiers(client, workspace_slug)
@@ -400,16 +432,33 @@ def register(mcp: FastMCP) -> None:
         if not project_id:
             return missing(action, "project_id")
 
+        if custom_fields is not None and not isinstance(custom_fields, dict):
+            return "Error: custom_fields must be an object of property key to value."
+
+        def written(data: CreateWorkItem | UpdateWorkItem) -> Any:
+            """Create or update; with custom_fields, sent raw, since the SDK models drop unknown fields."""
+            items = f"{workspace_slug}/projects/{project_id}/work-items"
+            try:
+                if not custom_fields:
+                    if action == "create":
+                        return client.work_items.create(workspace_slug=workspace_slug, project_id=project_id, data=data)
+                    return client.work_items.update(
+                        workspace_slug=workspace_slug, project_id=project_id, work_item_id=workitem_id, data=data
+                    )
+                if action == "create":
+                    body = data.model_dump(exclude_none=True) | {"custom_fields": custom_fields}
+                    return WorkItem.model_validate(client.work_items._post(items, body))
+                body = data.model_dump(exclude_unset=True) | {"custom_fields": custom_fields}
+                return WorkItem.model_validate(client.work_items._patch(f"{items}/{workitem_id}", body))
+            except HttpError as exc:
+                if custom_fields and (failure := _custom_fields_failure(action, exc)):
+                    return failure
+                raise
+
         if action == "create":
             if not name:
                 return missing(action, "name")
-            return linked(
-                client.work_items.create(
-                    workspace_slug=workspace_slug,
-                    project_id=project_id,
-                    data=CreateWorkItem(**write_payload()),
-                )
-            )
+            return linked(written(CreateWorkItem(**write_payload())))
 
         if not workitem_id:
             return missing(action, "workitem_id")
@@ -425,14 +474,7 @@ def register(mcp: FastMCP) -> None:
             )
 
         if action == "update":
-            return linked(
-                client.work_items.update(
-                    workspace_slug=workspace_slug,
-                    project_id=project_id,
-                    work_item_id=workitem_id,
-                    data=UpdateWorkItem(**write_payload()),
-                )
-            )
+            return linked(written(UpdateWorkItem(**write_payload())))
 
         if action == "delete":
             client.work_items.delete(workspace_slug=workspace_slug, project_id=project_id, work_item_id=workitem_id)

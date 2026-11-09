@@ -25,7 +25,7 @@ SAMPLES: dict[str, object] = {
     "priority": "medium",
     "group": "started",
     "relation_type": "blocked_by",
-    "property_type": "TEXT",
+    "property_type": {"workitem_property": "TEXT", "customer_property": "TEXT", "custom_field": "text"},
     # page and project take the numeric level; collection names it.
     "access": {"page": 1, "project": 1, "collection": "private"},
     "member_access": "edit",
@@ -67,6 +67,7 @@ CONDITIONAL: dict[tuple[str, str], dict[str, object]] = {
     ("release_label", "list"): {},
     ("workitem_step", "update"): {"title": "Renamed"},
     ("workitem_step", "set_path"): {"steps": [{"title": "Plan"}]},
+    ("custom_field", "update"): {"name": "Renamed"},
 }
 
 # SDK answers an action needs to see before it will report success.

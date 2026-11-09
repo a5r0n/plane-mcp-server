@@ -19,6 +19,7 @@ from typing import NamedTuple
 
 from plane_mcp.tools import (
     collection,
+    custom_field,
     customer,
     customer_property,
     customer_request,
@@ -85,6 +86,7 @@ RESOURCES: tuple[ModuleType, ...] = (
     collection,
     epic,
     workitem_step,
+    custom_field,
 )
 
 

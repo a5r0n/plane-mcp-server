@@ -60,6 +60,14 @@ CUSTOM PROPERTIES  (cf["<property-uuid>"] syntax)
   Value rules: OPTION → option UUID (not display name); DECIMAL → bare number; BOOLEAN → bare true/false
   Skip EMAIL, FILE, FORMULA properties — they cannot be filtered.
 
+CUSTOM FIELDS BY KEY  (prop.<key> syntax; Plane builds with the custom_field tool)
+  prop.<key> = "<value>"    prop.<key> IN ("<a>", "<b>")    prop.<key> IS NULL
+  Needs project_id; keys come from {custom_fields}. Choice → option id; member → user UUID or currentUser();
+  number → bare; boolean → bare TRUE/FALSE; date → "YYYY-MM-DD", today(), daysAgo(n),
+  daysFromNow(n); datetime → quoted ISO 8601 with a time zone.
+  ~ on text and url; < <= > >= on number, date, datetime. On a multiple field = means "holds".
+  != and NOT IN include items with no value. An unknown key is an error.
+
 OPERATORS
   =  !=  >  >=  <  <=  ~(contains)  IN(...)  NOT IN(...)
   IS NULL  IS NOT NULL  IS EMPTY  IS NOT EMPTY
@@ -277,6 +285,35 @@ cf["<property-uuid>"] IS NOT NULL
 - DATETIME: quoted string or date function — `cf["uuid"] >= daysAgo(7)`
 - Do NOT use IN/NOT IN on TEXT, URL, DECIMAL, DATETIME, or BOOLEAN properties
 
+### Custom Fields by Key (`prop.<key>`)
+
+On Plane builds with the custom_field tool, a project's custom fields filter by key, not UUID.
+List the keys with {custom_fields}; filter a project list (pass project_id).
+
+```
+prop.risk = "high"
+prop.risk IN ("high", "medium")
+prop.estimate >= 3
+prop.reviewed = TRUE
+prop.owner = currentUser()
+prop.due_on < today()
+prop.notes ~ "rollback"
+prop.risk IS NULL
+```
+
+| Field type            | Operators                                   | Value shape                          |
+|-----------------------|---------------------------------------------|--------------------------------------|
+| text, url             | =, !=, IN, NOT IN, ~, IS [NOT] NULL         | quoted string                        |
+| choice                | =, !=, IN, NOT IN, IS [NOT] NULL            | quoted option id (not the label)     |
+| member                | =, !=, IN, NOT IN, IS [NOT] NULL            | user UUID or currentUser()           |
+| number                | all of the above but ~, plus < <= > >=      | bare number                          |
+| date                  | all of the above but ~, plus < <= > >=      | "YYYY-MM-DD", today(), daysAgo(n), daysFromNow(n) |
+| datetime              | all of the above but ~, plus < <= > >=      | quoted ISO 8601 with a time zone     |
+| boolean               | =, !=, IS [NOT] NULL                        | bare TRUE / FALSE                    |
+
+On a multiple field `=` means "holds". `!=` and `NOT IN` include items with no value. An unknown or
+deleted key is an error.
+
 ### Limits
 
 - **Max 5 conditions** per query
@@ -364,6 +401,7 @@ RESOLVERS = {
     "modules": "`module list`",
     "milestones": "`milestone list`",
     "properties": "`workitem_property list`",
+    "custom_fields": "`custom_field list`",
 }
 
 
@@ -373,5 +411,6 @@ def render(template: str, resolvers: dict[str, str]) -> str:
     return template
 
 
+PQL_FIELD_DESCRIPTION = render(PQL_FIELD_DESCRIPTION, RESOLVERS)
 PQL_FIELD_HINT = render(_FIELD_HINT_TEMPLATE, RESOLVERS)
 PQL_FULL_REFERENCE = render(_FULL_REFERENCE_TEMPLATE, RESOLVERS)
