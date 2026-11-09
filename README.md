@@ -7,7 +7,7 @@ work items, cycles, modules, releases, customers and more.
 Built on [FastMCP](https://github.com/jlowin/fastmcp) and the official
 [`plane-sdk`](https://pypi.org/project/plane-sdk/).
 
-- **32 tools**, one per Plane resource, covering 222 operations
+- **33 tools**, one per Plane resource, covering 227 operations
 - **Local or remote** — stdio, streamable HTTP, SSE
 - **OAuth or API key** authentication
 
@@ -122,7 +122,7 @@ HTTP transport instead.
 
 ## Tools
 
-The server advertises 32 tools, one per resource. Each takes an `action`
+The server advertises 33 tools, one per resource. Each takes an `action`
 parameter that selects the operation:
 
 ```python
@@ -146,6 +146,22 @@ workitem(action="count", pql='assignees__id = "<member id>"', group_by="state_id
 ```
 
 Call `get_pql_reference` for the full syntax, operators and worked examples.
+
+### Custom fields
+
+On a Plane build with custom properties (stock Community Edition has none),
+`custom_field` defines a project's fields, and `workitem` reads and writes their
+values as `custom_fields`, an object of key to value:
+
+```python
+custom_field(action="create", project_id=..., name="Risk", key="risk", property_type="choice",
+             options=[{"label": "Low"}, {"label": "High"}])
+workitem(action="update", project_id=..., workitem_id=..., custom_fields={"risk": "high"})
+workitem(action="list", project_id=..., pql='prop.risk = "high"')
+```
+
+`null` clears a key. A rejected value comes back as an answer naming each key and
+why, and nothing is saved.
 
 ### Upgrading from the per-operation tools
 
