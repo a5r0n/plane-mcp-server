@@ -157,6 +157,17 @@ def test_a_rejected_value_comes_back_correctable(registered, spy, status, saved)
     assert result["hint"]
 
 
+def test_a_409_on_create_says_to_update_the_saved_item_not_create_again(registered, spy):
+    reasons = {"risk": "option removed"}
+    spy.returns["work_items._post"] = HttpError("Conflict", status_code=409, response={"custom_fields": reasons})
+
+    result = _item(registered, action="create", name="x", custom_fields={"risk": "high"})
+
+    assert "the work item was saved" in result["error"]
+    assert "don't create it again" in result["hint"]
+    assert "retry workitem update" in result["hint"]
+
+
 def test_other_write_errors_propagate(registered, spy):
     spy.returns["work_items._patch"] = HttpError("Bad", status_code=400, response={"name": ["required"]})
 

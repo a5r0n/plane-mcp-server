@@ -218,11 +218,17 @@ def _custom_fields_failure(action: str, exc: HttpError) -> dict[str, Any] | None
     if not isinstance(reasons, dict):
         return None
     if exc.status_code == 409:
+        retry = (
+            "The work item exists, so don't create it again: find it (workitem search by name), read the "
+            "custom_field definitions again, then retry workitem update with these keys only."
+            if action == "create"
+            else "Read the custom_field definitions again, then retry workitem update with these keys only."
+        )
         return {
             "error": "the work item was saved, but these custom_fields were not: a property or option "
             "changed while saving",
             "custom_fields": reasons,
-            "hint": f"Read the custom_field definitions again, then retry workitem {action} with these keys only.",
+            "hint": retry,
         }
     return {
         "error": "custom_fields rejected; nothing was saved",
