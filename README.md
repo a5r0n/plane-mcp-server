@@ -7,7 +7,7 @@ work items, cycles, modules, releases, customers and more.
 Built on [FastMCP](https://github.com/jlowin/fastmcp) and the official
 [`plane-sdk`](https://pypi.org/project/plane-sdk/).
 
-- **34 tools**, one per Plane resource, covering 229 operations
+- **33 tools**, one per Plane resource, covering 227 operations, plus an opt-in `skill` tool
 - **Local or remote** — stdio, streamable HTTP, SSE
 - **OAuth or API key** authentication
 
@@ -122,7 +122,7 @@ HTTP transport instead.
 
 ## Tools
 
-The server advertises 34 tools, one per resource (`skill` only when `PLANE_MCP_SKILLS_DIR` is set). Each takes an `action`
+The server advertises 33 tools, one per resource, and a 34th, `skill`, when `PLANE_MCP_SKILLS_DIR` is set. Each takes an `action`
 parameter that selects the operation:
 
 ```python

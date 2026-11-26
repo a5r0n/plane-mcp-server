@@ -54,7 +54,7 @@ def current_set(root: Path) -> SkillSet:
     if not path.is_dir():
         raise SkillsUnavailable(f"no skill set at {link}: it is not a folder")
     try:
-        version = (path / "VERSION").read_text().strip()
+        version = (path / "VERSION").read_text(encoding="utf-8").strip()
     except OSError:
         version = ""
     return SkillSet(path, version)
@@ -65,7 +65,7 @@ def skill_names(skill_set: SkillSet) -> list[str]:
 
 
 def describe(skill_set: SkillSet, name: str) -> str:
-    frontmatter, _ = parse_frontmatter((skill_set.path / name / MAIN_FILE).read_text())
+    frontmatter, _ = parse_frontmatter((skill_set.path / name / MAIN_FILE).read_text(encoding="utf-8"))
     return str(frontmatter.get("description", ""))
 
 

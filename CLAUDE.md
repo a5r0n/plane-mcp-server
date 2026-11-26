@@ -85,7 +85,7 @@ Every call to a Plane origin also carries the MCP request's own `X-Client-Sessio
 
 ### Tools (`tools/`)
 
-One action-dispatch tool per Plane resource: **34 tools, 229 actions, ~75k chars advertised** (`skill` only with `PLANE_MCP_SKILLS_DIR`). `tools/__init__.py` re-exports `register_tools`, so `server.py` and `__main__.py` see a single entry point.
+One action-dispatch tool per Plane resource: **33 tools, 227 actions, ~74k chars advertised**, plus `skill` (2 actions) with `PLANE_MCP_SKILLS_DIR`. `tools/__init__.py` re-exports `register_tools`, so `server.py` and `__main__.py` see a single entry point.
 
 One module per resource, each exporting `NAME`, `ACTIONS`, `LEGACY` and `register(mcp)`. `ACTIONS` is the single source of truth: the tool description and its `ToolAnnotations` are generated from it, and the conformance suite asserts they agree with the function signature. See `tools/README.md` for the full convention.
 

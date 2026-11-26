@@ -32,8 +32,6 @@ def available() -> bool:
 
 def register(mcp: FastMCP) -> None:
     root = skills.skills_dir()
-    if root is None:
-        return
 
     @mcp.tool(
         name=NAME,
@@ -51,23 +49,30 @@ def register(mcp: FastMCP) -> None:
         ),
     )
     def skill(action: Literal["list", "get"], name: str = "", path: str = "") -> dict | str:
+        if action == "get" and not name:
+            return missing("get", "name")
         try:
-            current = skills.current_set(root)
-            if action == "list":
-                return {
-                    "version": current.version,
-                    "skills": [
-                        {"name": n, "description": skills.describe(current, n)} for n in skills.skill_names(current)
-                    ],
-                }
-            if not name:
-                return missing("get", "name")
-            file = skills.skill_file(current, name, path or skills.MAIN_FILE)
-            return {
-                "name": name,
-                "path": path or skills.MAIN_FILE,
-                "version": current.version,
-                "text": file.read_text(),
-            }
+            return _answer(action, name, path)
+        except OSError:
+            # The set was deleted between resolving current and reading it: read the new one.
+            try:
+                return _answer(action, name, path)
+            except (OSError, skills.SkillsUnavailable) as exc:
+                return f"Error: {exc}."
         except skills.SkillsUnavailable as exc:
             return f"Error: {exc}."
+        except UnicodeDecodeError:
+            return f"Error: {path} is not a text file; read it as the resource skill://{name}/{path}."
+
+    def _answer(action: str, name: str, path: str) -> dict:
+        current = skills.current_set(root)
+        if action == "list":
+            return {
+                "version": current.version,
+                "skills": [
+                    {"name": n, "description": skills.describe(current, n)} for n in skills.skill_names(current)
+                ],
+            }
+        file = skills.skill_file(current, name, path or skills.MAIN_FILE)
+        text = file.read_text(encoding="utf-8")
+        return {"name": name, "path": path or skills.MAIN_FILE, "version": current.version, "text": text}

@@ -14,7 +14,7 @@ from plane_mcp.middleware import ReadOnly
 from plane_mcp.server import get_stdio_mcp
 from plane_mcp.skills import INSTRUCTIONS
 from plane_mcp.tools import register_tools
-from tests.tools.conftest import make_skill_set
+from tests._skills import make_skill_set
 
 OLD = "1" * 40
 NEW = "2" * 40
@@ -116,6 +116,19 @@ def test_a_swap_serves_the_new_set_with_no_restart(root):
     assert json.loads(_text(_call(mcp, action="list")))["version"] == NEW
 
 
+@pytest.mark.parametrize("uri", ["skill://squadron-plane/SKILL.md", "skill://squadron-plane/notes.md"])
+def test_the_first_read_after_a_swap_serves_the_new_set(root, uri):
+    mcp = get_stdio_mcp()
+    _run(_session(mcp, lambda c: c.read_resource(uri)))  # the server has followed the old set
+
+    _swap(root, NEW, {"squadron-plane": "New rules"})
+    (root / NEW[:12] / "squadron-plane" / "notes.md").write_text("new notes\n")
+
+    body = _run(_session(mcp, lambda c: c.read_resource(uri)))
+    assert "New rules" in body[0].text or body[0].text == "new notes\n"
+    assert json.loads(_text(_call(mcp, action="get", name="squadron-plane")))["version"] == NEW
+
+
 def test_a_missing_current_is_an_error_naming_the_folder(root):
     (root / "current").unlink()
     mcp = get_stdio_mcp()
@@ -144,10 +157,21 @@ def test_a_resource_path_leaving_the_skill_folder_is_refused(root):
 
 
 def test_the_read_only_server_allows_skill_and_still_refuses_writes(root):
+    from fastmcp import FastMCP
+
+    from plane_mcp.server import _configured
+
     guard = ReadOnly()
     assert guard.rejection("skill", {"action": "list"}) is None
-    assert guard.rejection("skill", {"action": "get", "name": "squadron-plane"}) is None
     assert guard.rejection("workitem", {"action": "create"}) is not None
+
+    server = _configured(FastMCP("read-only"), read_only=True)
+    got = json.loads(_text(_call(server, action="get", name="squadron-plane")))
+    assert got["version"] == OLD
+    refused = _run(
+        _session(server, lambda c: c.call_tool("workitem", {"action": "create", "project_id": "p", "name": "x"}))
+    )
+    assert "read-only" in _text(refused)
 
 
 def test_disabled_tools_cannot_hide_skill(root):
