@@ -89,12 +89,16 @@ _CALLER_VALUE_MAX = 255
 
 
 def caller_headers() -> dict[str, str]:
-    """CALLER_HEADERS from the MCP request being served, dropping empty, overlong or multi-line values."""
+    """CALLER_HEADERS from the MCP request being served, dropping empty, overlong or non-printable-ASCII values."""
     incoming = get_http_headers()  # empty outside an HTTP request, e.g. under stdio
     headers: dict[str, str] = {}
     for name in CALLER_HEADERS:
-        value = (incoming.get(name.lower()) or "").strip()
-        if value and len(value) <= _CALLER_VALUE_MAX and "\r" not in value and "\n" not in value:
+        raw = incoming.get(name.lower()) or ""
+        # Line breaks and other controls are refused before stripping; httpx cannot send non-ASCII.
+        if not (raw.isascii() and raw.isprintable()):
+            continue
+        value = raw.strip()
+        if value and len(value) <= _CALLER_VALUE_MAX:
             headers[name] = value
     return headers
 

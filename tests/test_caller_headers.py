@@ -6,17 +6,22 @@ server serves many agents, so PLANE_EXTRA_HEADERS (one value per process) cannot
 
 from __future__ import annotations
 
+import asyncio
 import json
 import threading
+import time
 from types import SimpleNamespace
 
+import httpx
 import pytest
 import requests
+from fastmcp.server.auth.auth import AccessToken
 from starlette.testclient import TestClient
 
 import plane_mcp.client as client_module
 from plane_mcp.__main__ import api_key_app
 from plane_mcp.auth import PlaneHeaderAuthProvider
+from plane_mcp.auth.plane_oauth_provider import PlaneOAuthTokenVerifier
 from plane_mcp.client import get_plane_client_context, plane_extra_headers
 
 PLANE = "http://plane.test"
@@ -75,12 +80,41 @@ def _caller(request) -> dict[str, str]:
     return {k: request.headers[k] for k in CALLER if k in request.headers}
 
 
-def test_the_callers_headers_go_to_plane_beside_its_own_auth(monkeypatch, routed):
+@pytest.fixture
+def httpx_wire(monkeypatch):
+    """Every request httpx sends, answered 200 `{}`."""
+    sent: list[httpx.Request] = []
+
+    async def handle(self, request):
+        await request.aread()
+        sent.append(request)
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", handle)
+    return sent
+
+
+def _token(**claims) -> AccessToken:
+    return AccessToken(
+        token="tok", client_id="c", scopes=["read", "write"], expires_at=int(time.time()) + 3600, claims=claims
+    )
+
+
+CONNECTIONS = {
+    "oauth": (_token(auth_method="oauth", workspace_slug="acme"), "Authorization", "Bearer tok"),
+    "header": (_token(auth_method="api_key_header", workspace_slug="acme"), "X-Api-Key", "tok"),
+}
+
+
+@pytest.mark.parametrize("kind", sorted(CONNECTIONS))
+def test_the_callers_headers_go_to_plane_beside_its_own_auth(kind, monkeypatch, routed):
+    token, auth_header, auth_value = CONNECTIONS[kind]
+    monkeypatch.setattr(client_module, "get_access_token", lambda: token)
     _incoming(monkeypatch, CALLER)
     _get_me()
     (request,) = routed[0]
     assert _caller(request) == CALLER
-    assert request.headers["X-Api-Key"] == "the-key"
+    assert request.headers[auth_header] == auth_value
 
 
 def test_a_request_without_them_sends_neither(monkeypatch, routed):
@@ -107,6 +141,26 @@ def test_the_caller_wins_over_plane_extra_headers(monkeypatch, routed):
     assert _caller(request) == CALLER
 
 
+def test_the_caller_wins_over_a_differently_cased_plane_extra_header(monkeypatch, routed):
+    monkeypatch.setenv("PLANE_EXTRA_HEADERS", "x-client-agent: from-env")
+    _incoming(monkeypatch, CALLER)
+    _get_me()
+    (request,) = routed[0]
+    assert _caller(request) == CALLER
+
+
+def test_the_auth_providers_plane_calls_carry_them_too(monkeypatch, httpx_wire):
+    _incoming(monkeypatch, CALLER)
+    assert asyncio.run(PlaneHeaderAuthProvider()._check_api_key(PLANE, "callers-key"))
+    asyncio.run(PlaneOAuthTokenVerifier(plane_base_url=PLANE).verify_token("oauth-tok"))
+
+    assert len(httpx_wire) == 3
+    for request in httpx_wire:
+        assert _caller(request) == CALLER
+    assert httpx_wire[0].headers["x-api-key"] == "callers-key"
+    assert all(r.headers["authorization"] == "Bearer oauth-tok" for r in httpx_wire[1:])
+
+
 def test_one_header_alone_is_forwarded(monkeypatch, routed):
     _incoming(monkeypatch, {"X-Client-Agent": "pilot"})
     _get_me()
@@ -116,8 +170,8 @@ def test_one_header_alone_is_forwarded(monkeypatch, routed):
 
 @pytest.mark.parametrize(
     "value",
-    ["a" * 256, "line\nbreak", "carriage\rreturn", "", "   "],
-    ids=["overlong", "lf", "cr", "empty", "blank"],
+    ["a" * 256, "line\nbreak", "carriage\rreturn", "trailing\n", "tab\tbed", "caf\u00e9", "", "   "],
+    ids=["overlong", "lf", "cr", "trailing-lf", "control", "non-ascii", "empty", "blank"],
 )
 def test_a_bad_value_is_dropped_and_the_good_one_kept(value, monkeypatch, routed):
     _incoming(monkeypatch, {"X-Client-Session": value, "X-Client-Agent": "pilot"})
@@ -159,7 +213,7 @@ def test_a_session_never_sends_them_off_the_plane_origin(monkeypatch):
 # --- through the real HTTP server ---------------------------------------------
 
 
-def _call(client: TestClient, workitem_id: str, headers: dict[str, str]) -> dict:
+def _call(client: TestClient, workitem_id: str, headers: dict[str, str | bytes]) -> dict:
     body = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -226,3 +280,15 @@ def test_two_concurrent_requests_each_send_only_their_own_values(monkeypatch, ro
     for request in sent:
         (workitem_id,) = [w for w in callers if f"/{w}/" in request.url]
         assert _caller(request) == callers[workitem_id]
+
+
+def test_a_non_ascii_value_neither_breaks_auth_nor_reaches_plane(monkeypatch, routed, httpx_wire):
+    """The key check runs unstubbed: httpx would raise on a non-ASCII header value."""
+    sent, _ = routed
+    with TestClient(api_key_app(), raise_server_exceptions=False) as client:
+        _call(client, "w-one", {"X-Client-Agent": "caf\u00e9".encode("latin-1"), "X-Client-Session": "s-one"})
+
+    (check,) = httpx_wire
+    assert _caller(check) == {"X-Client-Session": "s-one"}
+    (request,) = sent
+    assert _caller(request) == {"X-Client-Session": "s-one"}

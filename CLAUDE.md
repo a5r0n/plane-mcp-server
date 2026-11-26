@@ -76,6 +76,8 @@ Coercion runs before validation so an argument is judged by the value it repairs
 
 `get_plane_client_context()` returns a `PlaneClientContext(client, workspace_slug)` namedtuple. It resolves credentials from the MCP request context (OAuth token or header API key) or from environment variables (stdio mode). Prefers `PLANE_INTERNAL_BASE_URL` for server-to-server calls.
 
+Every call to a Plane origin also carries the MCP request's own `X-Client-Session`/`X-Client-Agent`, if it sent them (`caller_headers()`, read at send time from the request context, so concurrent requests never mix).
+
 ### Authentication (`auth/`)
 
 - `PlaneOAuthProvider` — Full OAuth flow with token verification against the Plane API.
