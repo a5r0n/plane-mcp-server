@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 import requests
 from fastmcp.server.auth.auth import AccessToken
-from fastmcp.server.dependencies import get_access_token
+from fastmcp.server.dependencies import get_access_token, get_http_headers
 from fastmcp.utilities.logging import get_logger
 from plane import PlaneClient
 from plane.api.work_items import attachments as _sdk_attachments
@@ -83,15 +83,38 @@ def is_plane_origin(url: str) -> bool:
     return origin is not None and origin in {_origin(base) for base in bases if base}
 
 
+# Provenance a caller may attach to its own MCP request; Plane records them on the activity.
+CALLER_HEADERS = ("X-Client-Session", "X-Client-Agent")
+_CALLER_VALUE_MAX = 255
+
+
+def caller_headers() -> dict[str, str]:
+    """CALLER_HEADERS from the MCP request being served, dropping empty, overlong or non-printable-ASCII values."""
+    incoming = get_http_headers()  # empty outside an HTTP request, e.g. under stdio
+    headers: dict[str, str] = {}
+    for name in CALLER_HEADERS:
+        raw = incoming.get(name.lower()) or ""
+        # Line breaks and other controls are refused before stripping; httpx cannot send non-ASCII.
+        if not (raw.isascii() and raw.isprintable()):
+            continue
+        value = raw.strip()
+        if value and len(value) <= _CALLER_VALUE_MAX:
+            headers[name] = value
+    return headers
+
+
 def scope_extra_headers(url: str, headers: MutableMapping[str, str]) -> None:
-    """Add PLANE_EXTRA_HEADERS to `headers` if `url` is a Plane origin, else remove them."""
-    extra = plane_extra_headers()
+    """Add PLANE_EXTRA_HEADERS and the caller's headers to `headers` on a Plane origin, else remove them."""
+    caller = caller_headers()
+    # Drop env keys the caller overrides in any case: httpx would otherwise send both.
+    overridden = {name.lower() for name in caller}
+    extra = {**{k: v for k, v in plane_extra_headers().items() if k.lower() not in overridden}, **caller}
     if not extra:
         return
     if is_plane_origin(url):
         headers.update(extra)
     else:
-        for name in extra:
+        for name in {*extra, *CALLER_HEADERS}:
             headers.pop(name, None)
 
 
@@ -105,7 +128,7 @@ _KEY_HEADER = "X-Api-Key"
 
 
 class PlaneSession(requests.Session):
-    """A session that sends PLANE_EXTRA_HEADERS and the API key to Plane origins only, redirects included."""
+    """Sends PLANE_EXTRA_HEADERS, the caller's headers and the API key to Plane origins only, redirects included."""
 
     def prepare_request(self, request: requests.Request) -> requests.PreparedRequest:
         prepared = super().prepare_request(request)

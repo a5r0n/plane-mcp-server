@@ -212,6 +212,21 @@ headers. If the gateway also guards the authorize page, users sign in to the
 gateway themselves, or the operator exempts the OAuth authorize and token paths
 from it.
 
+#### Client provenance headers
+
+On the HTTP transports, a caller may send `X-Client-Session` and `X-Client-Agent`
+on its MCP request; every Plane call made while serving that request carries them,
+under the same origin rule as `PLANE_EXTRA_HEADERS`. A Plane that records activity
+provenance stores them on each activity; any other Plane ignores them. A value that
+is empty, longer than 255 characters, or not printable ASCII (a line break, any
+other control character, a non-ASCII character) is dropped. A caller's
+value replaces one set in `PLANE_EXTRA_HEADERS`. stdio has no request headers, so
+there they come only from `PLANE_EXTRA_HEADERS`:
+
+```bash
+export PLANE_EXTRA_HEADERS='{"X-Client-Session": "<session>", "X-Client-Agent": "<agent>"}'
+```
+
 ### Outbound proxy for attachment uploads
 
 `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` (and their lowercase forms) are honored
