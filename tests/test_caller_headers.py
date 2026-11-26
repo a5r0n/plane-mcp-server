@@ -149,6 +149,14 @@ def test_the_caller_wins_over_a_differently_cased_plane_extra_header(monkeypatch
     assert _caller(request) == CALLER
 
 
+def test_an_httpx_call_sends_only_the_callers_value_over_a_differently_cased_env_one(monkeypatch, httpx_wire):
+    monkeypatch.setenv("PLANE_EXTRA_HEADERS", "x-client-agent: from-env")
+    _incoming(monkeypatch, CALLER)
+    assert asyncio.run(PlaneHeaderAuthProvider()._check_api_key(PLANE, "callers-key"))
+    (request,) = httpx_wire
+    assert request.headers.get_list("X-Client-Agent") == ["pilot"]
+
+
 def test_the_auth_providers_plane_calls_carry_them_too(monkeypatch, httpx_wire):
     _incoming(monkeypatch, CALLER)
     assert asyncio.run(PlaneHeaderAuthProvider()._check_api_key(PLANE, "callers-key"))

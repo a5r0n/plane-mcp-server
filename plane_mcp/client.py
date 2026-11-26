@@ -105,7 +105,10 @@ def caller_headers() -> dict[str, str]:
 
 def scope_extra_headers(url: str, headers: MutableMapping[str, str]) -> None:
     """Add PLANE_EXTRA_HEADERS and the caller's headers to `headers` on a Plane origin, else remove them."""
-    extra = {**plane_extra_headers(), **caller_headers()}
+    caller = caller_headers()
+    # Drop env keys the caller overrides in any case: httpx would otherwise send both.
+    overridden = {name.lower() for name in caller}
+    extra = {**{k: v for k, v in plane_extra_headers().items() if k.lower() not in overridden}, **caller}
     if not extra:
         return
     if is_plane_origin(url):
