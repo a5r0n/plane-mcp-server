@@ -112,11 +112,12 @@ def test_the_server_instructions_name_live_tools(registered, resource_modules):
     guess.
     """
     from plane_mcp.instructions import SERVER_INSTRUCTIONS
+    from plane_mcp.skills import INSTRUCTIONS
 
     actions = {mod.NAME: set(action_names(mod.ACTIONS)) for mod in resource_modules}
     broken = [
         f"`{span}` -> {problem}"
-        for span in BACKTICKED.findall(SERVER_INSTRUCTIONS)
+        for span in BACKTICKED.findall(SERVER_INSTRUCTIONS + INSTRUCTIONS)
         if REFERENCE.match(span.strip()) and (problem := _resolves(span, registered, actions))
     ]
     assert not broken, "the server instructions point at tools that do not exist:\n  " + "\n  ".join(broken)

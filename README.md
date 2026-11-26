@@ -7,7 +7,7 @@ work items, cycles, modules, releases, customers and more.
 Built on [FastMCP](https://github.com/jlowin/fastmcp) and the official
 [`plane-sdk`](https://pypi.org/project/plane-sdk/).
 
-- **33 tools**, one per Plane resource, covering 227 operations
+- **34 tools**, one per Plane resource, covering 229 operations
 - **Local or remote** — stdio, streamable HTTP, SSE
 - **OAuth or API key** authentication
 
@@ -122,7 +122,7 @@ HTTP transport instead.
 
 ## Tools
 
-The server advertises 33 tools, one per resource. Each takes an `action`
+The server advertises 34 tools, one per resource (`skill` only when `PLANE_MCP_SKILLS_DIR` is set). Each takes an `action`
 parameter that selects the operation:
 
 ```python
@@ -162,6 +162,16 @@ workitem(action="list", project_id=..., pql='prop.risk = "high"')
 
 `null` clears a key. A rejected value comes back as an answer naming each key and
 why, and nothing is saved.
+
+### Skills
+
+With `PLANE_MCP_SKILLS_DIR` set, the server serves the skill set `<dir>/current`
+points to, read-only: each skill as `skill://<name>/SKILL.md`, its file listing as
+`skill://<name>/_manifest` and its other files as `skill://<name>/<path>`. The
+`skill` tool lists them (`list`, with the set's `VERSION`) and reads one (`get`).
+`current` is resolved on every request, so swapping it to a new set takes effect
+without a restart. Mount the folder, not `current`: Docker resolves a mounted
+symlink once. `PLANE_MCP_DISABLED_TOOLS` can't hide `skill`.
 
 ### Upgrading from the per-operation tools
 
@@ -245,6 +255,7 @@ Self-hosting the server itself:
 | `REDIS_HOST` / `REDIS_PORT` | OAuth token storage; falls back to in-memory |
 | `PLANE_OAUTH_PROVIDER_*` | OAuth client credentials and base URL |
 | `PLANE_MCP_DISABLED_TOOLS` | Comma-separated tool names to leave out, with their retired names — e.g. features your Plane edition or plan lacks. An unknown name fails startup |
+| `PLANE_MCP_SKILLS_DIR` | Folder whose `current` link names the skill set to serve as `skill://` resources and the `skill` tool; unset serves none |
 | `MCP_PATH_PREFIX` | Path prefix for the HTTP routes, when mounted behind a proxy — `/plane` serves `/plane/http/mcp` |
 
 ### OAuth redirect URIs

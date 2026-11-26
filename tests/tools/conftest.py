@@ -34,11 +34,34 @@ def resource_modules():
     return RESOURCES
 
 
+def make_skill_set(root, sha: str, skills: dict[str, str]):
+    """A deployed skill set: `<root>/<sha>/<name>/SKILL.md` and `VERSION`, with `current` pointing at it."""
+    folder = root / sha[:12]
+    for name, description in skills.items():
+        (folder / name).mkdir(parents=True)
+        (folder / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n")
+    (folder / "VERSION").write_text(sha + "\n")
+    link = root / "current.tmp"
+    link.symlink_to(folder.name)
+    link.rename(root / "current")
+    return folder
+
+
 @pytest.fixture(scope="session")
-def registered():
-    """Every tool as registered, keyed by name."""
-    mcp = FastMCP("conformance")
-    register_v2(mcp, legacy_names=False)
+def registered(tmp_path_factory):
+    """Every tool as registered, keyed by name, with skills served so the skill tool is among them."""
+    root = tmp_path_factory.mktemp("skills")
+    make_skill_set(root, "a" * 40, {"squadron-plane": "Shared rules"})
+    previous = os.environ.get("PLANE_MCP_SKILLS_DIR")
+    os.environ["PLANE_MCP_SKILLS_DIR"] = str(root)
+    try:
+        mcp = FastMCP("conformance")
+        register_v2(mcp, legacy_names=False)
+    finally:
+        if previous is None:
+            del os.environ["PLANE_MCP_SKILLS_DIR"]
+        else:
+            os.environ["PLANE_MCP_SKILLS_DIR"] = previous
     return {tool.name: tool for tool in _run(mcp.list_tools())}
 
 

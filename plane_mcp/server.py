@@ -9,8 +9,9 @@ from mcp.types import Icon
 
 from plane_mcp.auth import PlaneHeaderAuthProvider, PlaneOAuthProvider
 from plane_mcp.client import plane_extra_headers
-from plane_mcp.instructions import SERVER_INSTRUCTIONS
+from plane_mcp.instructions import server_instructions
 from plane_mcp.middleware import CoerceArguments, PlaneLoggingMiddleware, ReadOnly, ValidateActionArguments
+from plane_mcp.skills import CurrentSkills, skills_dir
 from plane_mcp.storage import build_token_store
 from plane_mcp.tools import register_tools
 
@@ -64,6 +65,8 @@ def _configured(mcp: FastMCP, *, read_only: bool = False) -> FastMCP:
     mcp.add_middleware(CoerceArguments())
     mcp.add_middleware(ValidateActionArguments())
     register_tools(mcp)
+    if (root := skills_dir()) is not None:
+        mcp.add_provider(CurrentSkills(root))
     return mcp
 
 
@@ -71,7 +74,7 @@ def get_oauth_mcp(base_path: str = "/") -> FastMCP:
     """Build the FastMCP instance for the OAuth HTTP / SSE transports."""
     oauth_mcp = FastMCP(
         "Plane MCP Server",
-        instructions=SERVER_INSTRUCTIONS,
+        instructions=server_instructions(),
         icons=[Icon(src="https://plane.so/favicon.ico", alt="Plane MCP Server")],
         website_url="https://plane.so",
         auth=PlaneOAuthProvider(
@@ -92,7 +95,7 @@ def get_oauth_mcp(base_path: str = "/") -> FastMCP:
 def get_header_mcp(*, read_only: bool = False):
     header_mcp = FastMCP(
         "Plane MCP Server (header-http, read-only)" if read_only else "Plane MCP Server (header-http)",
-        instructions=SERVER_INSTRUCTIONS,
+        instructions=server_instructions(),
         auth=PlaneHeaderAuthProvider(
             required_scopes=["read", "write"],
         ),
@@ -103,6 +106,6 @@ def get_header_mcp(*, read_only: bool = False):
 def get_stdio_mcp():
     stdio_mcp = FastMCP(
         "Plane MCP Server (stdio)",
-        instructions=SERVER_INSTRUCTIONS,
+        instructions=server_instructions(),
     )
     return _configured(stdio_mcp)

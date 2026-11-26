@@ -11,3 +11,10 @@ SERVER_INSTRUCTIONS = """
 
 Use the `epic` tool. An epic's children are work items with parent set to the epic.
 """
+
+
+def server_instructions() -> str:
+    """The instructions, with the skills line only when this server serves skills."""
+    from plane_mcp.skills import INSTRUCTIONS, skills_dir
+
+    return SERVER_INSTRUCTIONS + INSTRUCTIONS if skills_dir() is not None else SERVER_INSTRUCTIONS

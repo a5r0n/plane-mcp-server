@@ -16,7 +16,7 @@ from plane_mcp.toolkit.governance import WORKSPACE_MANAGED
 from plane_mcp.toolkit.spec import action_names
 
 # Ratchets. Lowering these is routine; raising one is a design decision.
-LISTING_BUDGET_CHARS = 74_000
+LISTING_BUDGET_CHARS = 75_000  # the opt-in skill tool included
 MAX_ADVERTISED_TOOLS = 35  # strictest published client cap is 40 -- leave headroom
 NAME_BUDGET = 46  # 64-char provider limit, less room for a client prefix
 UNMAPPED_BUDGET = 7  # retired tools that cannot be aliased; see the test for the shape
@@ -69,6 +69,7 @@ CATALOGUE = [
     "epic",
     "workitem_step",
     "custom_field",
+    "skill",
 ]
 
 

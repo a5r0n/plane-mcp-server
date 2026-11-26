@@ -42,6 +42,8 @@ SAMPLES: dict[str, object] = {
 CONDITIONAL: dict[tuple[str, str], dict[str, object]] = {
     # An update has to carry a field to change; page_id alone is refused.
     ("page", "update"): {"name": "Renamed"},
+    # The conformance fixture serves one skill.
+    ("skill", "get"): {"name": "squadron-plane"},
     # Without project_id this is the workspace catalogue, which requires a group.
     ("state", "create"): {"group": "started"},
     ("template", "update"): {"name": "Renamed"},
@@ -79,6 +81,8 @@ RETURNS: dict[tuple[str, str], tuple[str, object]] = {
 NO_CALL_EXPECTED: set[tuple[str, str]] = {
     ("get_pql_reference", "read"),  # returns static reference text
     ("workspace", "retrieve"),  # answered from the connection's own credentials
+    ("skill", "list"),  # read from the deployed skills folder
+    ("skill", "get"),
 }
 
 # Actions that need populated remote state or an outbound HTTP fetch to get past
