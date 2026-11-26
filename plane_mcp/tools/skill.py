@@ -5,6 +5,7 @@ Registered only when `PLANE_MCP_SKILLS_DIR` is set; never hidden by `PLANE_MCP_D
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Literal
 
 from fastmcp import FastMCP
@@ -51,28 +52,36 @@ def register(mcp: FastMCP) -> None:
     def skill(action: Literal["list", "get"], name: str = "", path: str = "") -> dict | str:
         if action == "get" and not name:
             return missing("get", "name")
-        try:
-            return _answer(action, name, path)
-        except OSError:
-            # The set was deleted between resolving current and reading it: read the new one.
-            try:
-                return _answer(action, name, path)
-            except (OSError, skills.SkillsUnavailable) as exc:
-                return f"Error: {exc}."
-        except skills.SkillsUnavailable as exc:
-            return f"Error: {exc}."
-        except UnicodeDecodeError:
-            return f"Error: {path} is not a text file; read it as the resource skill://{name}/{path}."
+        answer, used = _answer(action, name, path)
+        if _target() != used:
+            # current moved while this answer was read: answer again from the new set.
+            answer, _ = _answer(action, name, path)
+        return answer
 
-    def _answer(action: str, name: str, path: str) -> dict:
-        current = skills.current_set(root)
-        if action == "list":
+    def _target() -> Path | None:
+        try:
+            return skills.current_set(root).path
+        except skills.SkillsUnavailable:
+            return None
+
+    def _answer(action: str, name: str, path: str) -> tuple[dict | str, Path | None]:
+        current = None
+        try:
+            current = skills.current_set(root)
+            if action == "list":
+                found = skills.readable_skills(current)
+                listed = [{"name": n, "description": d} for n, d in found.items()]
+                return {"version": current.version, "skills": listed}, current.path
+            file = skills.skill_file(current, name, path or skills.MAIN_FILE)
+            try:
+                text = file.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                return f"Error: {file.name} in the {name} skill is not UTF-8 text.", current.path
             return {
+                "name": name,
+                "path": path or skills.MAIN_FILE,
                 "version": current.version,
-                "skills": [
-                    {"name": n, "description": skills.describe(current, n)} for n in skills.skill_names(current)
-                ],
-            }
-        file = skills.skill_file(current, name, path or skills.MAIN_FILE)
-        text = file.read_text(encoding="utf-8")
-        return {"name": name, "path": path or skills.MAIN_FILE, "version": current.version, "text": text}
+                "text": text,
+            }, current.path
+        except (skills.SkillsUnavailable, OSError) as exc:
+            return f"Error: {exc}.", current.path if current else None

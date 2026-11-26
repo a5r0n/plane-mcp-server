@@ -14,9 +14,12 @@ from typing import NamedTuple
 from fastmcp.resources.base import Resource
 from fastmcp.resources.template import ResourceTemplate
 from fastmcp.server.providers.aggregate import AggregateProvider
-from fastmcp.server.providers.skills import SkillsDirectoryProvider
+from fastmcp.server.providers.skills import SkillProvider
 from fastmcp.server.providers.skills._common import parse_frontmatter
+from fastmcp.utilities.logging import get_logger
 from fastmcp.utilities.versions import VersionSpec
+
+logger = get_logger(__name__)
 
 ENV = "PLANE_MCP_SKILLS_DIR"
 MAIN_FILE = "SKILL.md"
@@ -60,19 +63,36 @@ def current_set(root: Path) -> SkillSet:
     return SkillSet(path, version)
 
 
+def _contained(skill_set: SkillSet, name: str) -> Path | None:
+    """The skill folder `name`, only if it resolves to a direct child of the set holding a SKILL.md."""
+    folder = (skill_set.path / name).resolve()
+    if folder.parent != skill_set.path or not (folder / MAIN_FILE).is_file():
+        return None
+    return folder
+
+
 def skill_names(skill_set: SkillSet) -> list[str]:
-    return sorted(p.name for p in skill_set.path.iterdir() if (p / MAIN_FILE).is_file())
+    return sorted(p.name for p in skill_set.path.iterdir() if _contained(skill_set, p.name))
 
 
-def describe(skill_set: SkillSet, name: str) -> str:
-    frontmatter, _ = parse_frontmatter((skill_set.path / name / MAIN_FILE).read_text(encoding="utf-8"))
-    return str(frontmatter.get("description", ""))
+def readable_skills(skill_set: SkillSet) -> dict[str, str]:
+    """Each servable skill's description; a skill whose SKILL.md can't be read is left out, with a warning."""
+    found = {}
+    for name in skill_names(skill_set):
+        main = skill_set.path / name / MAIN_FILE
+        try:
+            frontmatter, _ = parse_frontmatter(main.read_text(encoding="utf-8"))
+        except UnicodeDecodeError:
+            logger.warning("skipping skill %s: %s is not UTF-8 text", name, main)
+            continue
+        found[name] = str(frontmatter.get("description", ""))
+    return found
 
 
 def skill_file(skill_set: SkillSet, name: str, path: str = MAIN_FILE) -> Path:
     """The file `path` inside skill `name`; refuses anything that leaves the skill folder."""
-    folder = (skill_set.path / name).resolve()
-    if folder.parent != skill_set.path or not (folder / MAIN_FILE).is_file():
+    folder = _contained(skill_set, name)
+    if folder is None:
         raise SkillsUnavailable(f"no skill named {name!r}; skills: {', '.join(skill_names(skill_set))}")
     target = (folder / path).resolve()
     if not target.is_relative_to(folder):
@@ -92,13 +112,14 @@ class CurrentSkills(AggregateProvider):
 
     def _follow(self) -> None:
         try:
-            target = current_set(self._root).path
+            skill_set = current_set(self._root)
         except SkillsUnavailable:
-            target = None
+            skill_set = None
+        target = skill_set.path if skill_set else None
         if target == self._target:
             return
-        # Build the new provider before swapping, so a concurrent request sees the old set or the new one.
-        self.providers = [SkillsDirectoryProvider(roots=target)] if target else []
+        # Build the new providers before swapping, so a concurrent request sees the old set or the new one.
+        self.providers = _providers(skill_set) if skill_set else []
         self._target = target
 
     async def _list_resources(self) -> Sequence[Resource]:
@@ -116,3 +137,14 @@ class CurrentSkills(AggregateProvider):
     async def _get_resource_template(self, uri: str, version: VersionSpec | None = None) -> ResourceTemplate | None:
         self._follow()
         return await super()._get_resource_template(uri, version)
+
+
+def _providers(skill_set: SkillSet) -> list[SkillProvider]:
+    """One provider per servable skill; one that fails to load is left out, with a warning naming it."""
+    providers = []
+    for name in readable_skills(skill_set):
+        try:
+            providers.append(SkillProvider(skill_path=skill_set.path / name, main_file_name=MAIN_FILE))
+        except (OSError, ValueError) as exc:
+            logger.warning("skipping skill %s: %s", name, exc)
+    return providers

@@ -181,3 +181,74 @@ def test_disabled_tools_cannot_hide_skill(root):
     register_tools(mcp, disabled={"skill", "label"})
     names = {t.name for t in _run(mcp.list_tools())}
     assert "skill" in names and "label" not in names
+
+
+@pytest.fixture
+def outside(root, tmp_path_factory):
+    """A skill folder outside the set, linked into it as `outside-skill`."""
+    folder = tmp_path_factory.mktemp("outside") / "outside-skill"
+    folder.mkdir()
+    (folder / "SKILL.md").write_text("---\ndescription: Outside\n---\noutside text\n")
+    (root / OLD[:12] / "outside-skill").symlink_to(folder, target_is_directory=True)
+    return folder
+
+
+def test_a_skill_linked_from_outside_the_set_is_not_served(root, outside):
+    mcp = get_stdio_mcp()
+
+    listed = json.loads(_text(_call(mcp, action="list")))["skills"]
+    assert "outside-skill" not in {s["name"] for s in listed}
+    result = _text(_call(mcp, action="get", name="outside-skill"))
+    assert result.startswith("Error:") and "no skill named" in result
+    uris = {str(r.uri) for r in _run(_session(mcp, lambda c: c.list_resources()))}
+    assert not any(u.startswith("skill://outside-skill/") for u in uris)
+    with pytest.raises(Exception, match="not found"):
+        _run(_session(mcp, lambda c: c.read_resource("skill://outside-skill/SKILL.md")))
+
+
+def _moves_after_first_resolve(monkeypatch, root, skills_after):
+    """current is resolved once, then a deploy swaps it before the answer is read."""
+    from plane_mcp import skills
+
+    real = skills.current_set
+    calls = []
+
+    def resolve(r):
+        result = real(r)
+        if not calls:
+            (root / "current").unlink()
+            make_skill_set(root, NEW, skills_after)
+        calls.append(result)
+        return result
+
+    monkeypatch.setattr(skills, "current_set", resolve)
+
+
+def test_list_answers_from_the_new_set_when_current_moves_mid_answer(root, monkeypatch):
+    _moves_after_first_resolve(monkeypatch, root, {"squadron-plane": "New rules", "demo": "Demo"})
+
+    result = json.loads(_text(_call(get_stdio_mcp(), action="list")))
+    assert result["version"] == NEW
+    assert {s["name"] for s in result["skills"]} == {"squadron-plane", "demo"}
+
+
+def test_get_answers_from_the_new_set_when_current_moves_mid_answer(root, monkeypatch):
+    _moves_after_first_resolve(monkeypatch, root, {"demo": "Demo"})
+
+    result = json.loads(_text(_call(get_stdio_mcp(), action="get", name="demo")))
+    assert result["version"] == NEW and "Demo" in result["text"]
+
+
+def test_an_unreadable_skill_is_left_out_with_a_warning_naming_it(root, caplog):
+    bad = root / OLD[:12] / "squadron-pilot" / "SKILL.md"
+    bad.write_bytes(b"---\ndescription: \xff\xfe\n---\n")
+    mcp = get_stdio_mcp()
+
+    with caplog.at_level("WARNING"):
+        listed = json.loads(_text(_call(mcp, action="list")))["skills"]
+        uris = {str(r.uri) for r in _run(_session(mcp, lambda c: c.list_resources()))}
+
+    assert [s["name"] for s in listed] == ["squadron-plane"]
+    assert "skill://squadron-plane/SKILL.md" in uris and "skill://squadron-pilot/SKILL.md" not in uris
+    assert str(bad) in caplog.text
+    assert "not UTF-8" in _text(_call(mcp, action="get", name="squadron-pilot"))
