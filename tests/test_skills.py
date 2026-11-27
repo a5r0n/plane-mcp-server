@@ -320,7 +320,9 @@ def test_a_skill_that_cannot_be_checked_is_left_out_with_a_warning_naming_it(roo
     assert str(broken) in warnings.text
 
 
-@pytest.mark.parametrize("name", ["VERSION/x", "squadron-plane/SKILL.md/x", "x" * 300, "../../shut/x", "a\nINJECTED"])
+@pytest.mark.parametrize(
+    "name", ["VERSION/x", "squadron-plane/SKILL.md/x", "x" * 300, "../shut/x", "VERSION/a\nINJECTED"]
+)
 def test_a_name_that_is_not_in_the_set_logs_no_warning(root, warnings, name):
     shut = root / "shut"
     shut.mkdir()
