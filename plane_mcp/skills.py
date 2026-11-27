@@ -64,9 +64,10 @@ def current_set(root: Path) -> SkillSet:
 
 
 def _contained(skill_set: SkillSet, name: str) -> Path | None:
-    """The skill folder `name`, only if it resolves to a direct child of the set holding a SKILL.md."""
+    """The skill folder `name`, only if it and its SKILL.md resolve inside the set."""
     folder = (skill_set.path / name).resolve()
-    if folder.parent != skill_set.path or not (folder / MAIN_FILE).is_file():
+    main = (folder / MAIN_FILE).resolve()
+    if folder.parent != skill_set.path or not main.is_relative_to(folder) or not main.is_file():
         return None
     return folder
 
@@ -84,6 +85,9 @@ def readable_skills(skill_set: SkillSet) -> dict[str, str]:
             frontmatter, _ = parse_frontmatter(main.read_text(encoding="utf-8"))
         except UnicodeDecodeError:
             logger.warning("skipping skill %s: %s is not UTF-8 text", name, main)
+            continue
+        except OSError as exc:
+            logger.warning("skipping skill %s: can't read %s: %s", name, main, exc)
             continue
         found[name] = str(frontmatter.get("description", ""))
     return found

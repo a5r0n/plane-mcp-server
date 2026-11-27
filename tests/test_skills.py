@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 
 import pytest
@@ -239,16 +240,63 @@ def test_get_answers_from_the_new_set_when_current_moves_mid_answer(root, monkey
     assert result["version"] == NEW and "Demo" in result["text"]
 
 
-def test_an_unreadable_skill_is_left_out_with_a_warning_naming_it(root, caplog):
+@pytest.fixture
+def warnings(caplog):
+    """Warnings from the skills logger, which fastmcp's logging setup keeps from propagating to root."""
+    from plane_mcp import skills
+
+    skills.logger.addHandler(caplog.handler)
+    caplog.set_level("WARNING", logger=skills.logger.name)
+    yield caplog
+    skills.logger.removeHandler(caplog.handler)
+
+
+def _served(mcp) -> tuple[list[str], set[str]]:
+    listed = json.loads(_text(_call(mcp, action="list")))["skills"]
+    uris = {str(r.uri) for r in _run(_session(mcp, lambda c: c.list_resources()))}
+    return [s["name"] for s in listed], uris
+
+
+def test_a_non_utf8_skill_is_left_out_with_a_warning_naming_it(root, warnings):
     bad = root / OLD[:12] / "squadron-pilot" / "SKILL.md"
     bad.write_bytes(b"---\ndescription: \xff\xfe\n---\n")
     mcp = get_stdio_mcp()
 
-    with caplog.at_level("WARNING"):
-        listed = json.loads(_text(_call(mcp, action="list")))["skills"]
-        uris = {str(r.uri) for r in _run(_session(mcp, lambda c: c.list_resources()))}
+    names, uris = _served(mcp)
 
-    assert [s["name"] for s in listed] == ["squadron-plane"]
+    assert names == ["squadron-plane"]
     assert "skill://squadron-plane/SKILL.md" in uris and "skill://squadron-pilot/SKILL.md" not in uris
-    assert str(bad) in caplog.text
+    assert str(bad) in warnings.text
     assert "not UTF-8" in _text(_call(mcp, action="get", name="squadron-pilot"))
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads any file")
+def test_a_skill_that_cannot_be_read_is_left_out_with_a_warning_naming_it(root, warnings):
+    bad = root / OLD[:12] / "squadron-pilot" / "SKILL.md"
+    bad.chmod(0)
+    try:
+        mcp = get_stdio_mcp()
+        names, uris = _served(mcp)
+        result = _text(_call(mcp, action="get", name="squadron-pilot"))
+    finally:
+        bad.chmod(0o644)
+
+    assert names == ["squadron-plane"]
+    assert "skill://squadron-plane/SKILL.md" in uris and "skill://squadron-pilot/SKILL.md" not in uris
+    assert str(bad) in warnings.text
+    assert result.startswith("Error:")
+
+
+def test_a_skill_md_linked_from_outside_the_set_is_not_served(root, tmp_path_factory):
+    elsewhere = tmp_path_factory.mktemp("elsewhere") / "SKILL.md"
+    elsewhere.write_text("---\ndescription: Elsewhere\n---\nelsewhere text\n")
+    main = root / OLD[:12] / "squadron-pilot" / "SKILL.md"
+    main.unlink()
+    main.symlink_to(elsewhere)
+    mcp = get_stdio_mcp()
+
+    names, uris = _served(mcp)
+
+    assert names == ["squadron-plane"]
+    assert not any(u.startswith("skill://squadron-pilot/") for u in uris)
+    assert "no skill named" in _text(_call(mcp, action="get", name="squadron-pilot"))
