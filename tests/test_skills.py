@@ -287,6 +287,39 @@ def test_a_skill_that_cannot_be_read_is_left_out_with_a_warning_naming_it(root, 
     assert result.startswith("Error:")
 
 
+def _main_file_loops(folder):
+    folder.mkdir()
+    (folder / "SKILL.md").symlink_to("SKILL.md")
+
+
+def _folder_loops(folder):
+    folder.symlink_to(folder.name, target_is_directory=True)
+
+
+def _folder_shut(folder):
+    folder.mkdir()
+    (folder / "SKILL.md").write_text("---\ndescription: Broken\n---\n")
+    folder.chmod(0)
+
+
+@pytest.mark.parametrize("breaks", [_main_file_loops, _folder_loops, _folder_shut])
+def test_a_skill_that_cannot_be_checked_is_left_out_with_a_warning_naming_it(root, warnings, breaks):
+    if breaks is _folder_shut and hasattr(os, "geteuid") and os.geteuid() == 0:
+        pytest.skip("root reads any folder")
+    broken = root / OLD[:12] / "broken"
+    breaks(broken)
+    try:
+        mcp = get_stdio_mcp()
+        names, uris = _served(mcp)
+    finally:
+        if not broken.is_symlink():
+            broken.chmod(0o755)
+
+    assert names == ["squadron-pilot", "squadron-plane"]
+    assert "skill://squadron-plane/SKILL.md" in uris and not any(u.startswith("skill://broken/") for u in uris)
+    assert str(broken) in warnings.text
+
+
 def test_a_skill_md_linked_from_outside_the_set_is_not_served(root, tmp_path_factory):
     elsewhere = tmp_path_factory.mktemp("elsewhere") / "SKILL.md"
     elsewhere.write_text("---\ndescription: Elsewhere\n---\nelsewhere text\n")

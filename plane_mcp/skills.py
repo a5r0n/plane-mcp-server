@@ -64,10 +64,19 @@ def current_set(root: Path) -> SkillSet:
 
 
 def _contained(skill_set: SkillSet, name: str) -> Path | None:
-    """The skill folder `name`, only if it and its SKILL.md resolve inside the set."""
-    folder = (skill_set.path / name).resolve()
-    main = (folder / MAIN_FILE).resolve()
-    if folder.parent != skill_set.path or not main.is_relative_to(folder) or not main.is_file():
+    """The skill folder `name`, only if it and its SKILL.md resolve inside the set; one that can't be checked warns."""
+    entry = skill_set.path / name
+    try:
+        folder = entry.resolve(strict=True)
+        if folder.parent != skill_set.path or not folder.is_dir():
+            return None
+        main = (folder / MAIN_FILE).resolve(strict=True)
+    except FileNotFoundError:
+        return None
+    except (OSError, RuntimeError) as exc:
+        logger.warning("skipping skill %s: can't check %s: %s", name, entry, exc)
+        return None
+    if not main.is_relative_to(folder) or not main.is_file():
         return None
     return folder
 
