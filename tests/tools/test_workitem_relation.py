@@ -23,6 +23,7 @@ CE_LIST = {
     "finish_after": [],
     "finish_before": [],
 }
+FORK_LIST = {**CE_LIST, "implemented_by": [{"project_id": "proj-1", "issue_id": "wi-3"}], "implements": []}
 RAW_GET = "work_items.relations._get"
 CREATE = "work_items.relations.create"
 CUSTOM_LIST = "work_items.custom_relations.list"
@@ -33,8 +34,10 @@ def _call(registered, **arguments):
     return registered["workitem_relation"].fn(**arguments)
 
 
-def test_all_eight_types_are_offered():
+def test_the_sdk_types_and_the_implements_pair_are_offered():
     assert set(RELATION_TYPES) == {
+        "implemented_by",
+        "implements",
         "blocking",
         "blocked_by",
         "duplicate",
@@ -98,6 +101,38 @@ def test_list_keeps_the_objects_plane_sends(registered, spy):
 
     assert result == {"dependencies": CE_LIST, "custom": {}}
     assert spy.recorder.calls[0].kwargs["endpoint"] == "acme/projects/proj-1/work-items/wi-1/relations"
+
+
+def test_list_keeps_keys_beyond_the_sdk_types(registered, spy):
+    spy.returns[RAW_GET] = FORK_LIST
+    spy.returns[CUSTOM_LIST] = NOT_FOUND
+
+    assert _call(registered, action="list", **ITEM)["dependencies"] == FORK_LIST
+
+
+@pytest.mark.parametrize("relation_type", ["implemented_by", "implements"])
+def test_a_plane_without_the_implements_pair_says_so(registered, spy, relation_type):
+    spy.returns[CREATE] = HttpError(
+        "Bad request", 400, {"relation_type": [f'"{relation_type}" is not a valid choice.']}
+    )
+
+    result = _call(registered, action="create", workitem_ids=["wi-2"], relation_type=relation_type, **ITEM)
+
+    assert result.startswith(f"Error: Plane refused relation_type {relation_type}")
+
+
+def test_a_400_about_the_ids_is_not_read_as_a_missing_type(registered, spy):
+    spy.returns[CREATE] = HttpError("Bad request", 400, {"issues": {"0": ["Must be a valid UUID."]}})
+
+    with pytest.raises(HttpError):
+        _call(registered, action="create", workitem_ids=["nope"], relation_type="implemented_by", **ITEM)
+
+
+def test_a_400_on_a_built_in_type_is_not_reworded(registered, spy):
+    spy.returns[CREATE] = HttpError("Bad request", 400, {"relation_type": ["not a valid choice."]})
+
+    with pytest.raises(HttpError):
+        _call(registered, action="create", workitem_ids=["wi-2"], relation_type="blocked_by", **ITEM)
 
 
 def test_list_does_not_read_an_auth_failure_as_no_custom_relations(registered, spy):

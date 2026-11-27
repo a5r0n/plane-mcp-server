@@ -1,8 +1,9 @@
 """Relations between work items, and the workspace definitions that type them.
 
-Two systems behind one tool: built-in relations (eight fixed types, on every
-edition) and custom relations (workspace-defined, each with an outward and inward
-label, paid only). `create` routes between them by which arguments are supplied.
+Two systems behind one tool: built-in relations (the SDK's eight types on every
+edition, plus implemented_by/implements where the server has them) and custom
+relations (workspace-defined, each with an outward and inward label, paid only).
+`create` routes between them by which arguments are supplied.
 """
 
 from __future__ import annotations
@@ -39,7 +40,9 @@ from plane_mcp.toolkit import (
 NAME = "workitem_relation"
 TITLE = "Work item relations"
 
-RELATION_TYPES: tuple[str, ...] = get_args(WorkItemRelationTypeEnum)
+# Not in the SDK's enum: only a Plane server that adds this pair accepts it.
+IMPLEMENTS_TYPES: tuple[str, ...] = ("implemented_by", "implements")
+RELATION_TYPES: tuple[str, ...] = get_args(WorkItemRelationTypeEnum) + IMPLEMENTS_TYPES
 
 _OTHER_RELATIONS = (
     "For any other relationship pass relation_definition_id and "
@@ -62,6 +65,11 @@ _NO_CUSTOM_REMOVE = (
     "edition (Community Edition has none). For a built-in relation pass is_dependency=true."
 )
 
+_NO_IMPLEMENTS = (
+    "Error: Plane refused relation_type {relation_type} (400): this Plane server does not have the "
+    "implemented_by/implements relation. Use relates_to, or another built-in type."
+)
+
 _NOT_RELATED = (
     "Plane accepts these without relating them when the pair already has a relation, of any "
     "type, or the id does not exist. Check with the list action."
@@ -73,7 +81,7 @@ ACTIONS = (
         "create",
         ("project_id", "workitem_id", "workitem_ids"),
         ("relation_type", "relation_definition_id", "relation_definition_label"),
-        note="pass relation_type for a built-in relation, or definition id + label for a custom relation",
+        note="relation_type, or definition id + label for a custom relation",
     ),
     Action(
         "delete",
@@ -90,9 +98,10 @@ ACTIONS = (
 )
 
 FOOTER = (
-    f"relation_type takes a built-in type: {', '.join(RELATION_TYPES)}. A pair of work items "
-    "holds one relation. For a custom relation (paid editions), call list_definitions and "
-    "match the user's wording to an entry: its id goes in relation_definition_id and the "
+    f"relation_type is a built-in type: {', '.join(RELATION_TYPES)}. A pair "
+    "holds one relation. A implemented_by B: B builds A. "
+    "For a custom relation (paid editions), match the user's wording to a "
+    "list_definitions entry: its id goes in relation_definition_id and the "
     "matched outward or inward label in relation_definition_label, which sets direction."
 )
 
@@ -248,15 +257,19 @@ def register(mcp: FastMCP) -> None:
             if relation_type:
                 if error := one_of("relation_type", relation_type, RELATION_TYPES, _OTHER_RELATIONS):
                     return error
-                created = client.work_items.relations.create(
-                    workspace_slug=workspace_slug,
-                    project_id=project_id,
-                    work_item_id=workitem_id,
-                    data=CreateWorkItemRelation(
-                        relation_type=relation_type,  # type: ignore[arg-type]
-                        issues=targets,
-                    ),
-                )
+                try:
+                    created = client.work_items.relations.create(
+                        workspace_slug=workspace_slug,
+                        project_id=project_id,
+                        work_item_id=workitem_id,
+                        # Unvalidated: the SDK's Literal omits types checked by one_of above.
+                        data=CreateWorkItemRelation.model_construct(relation_type=relation_type, issues=targets),
+                    )
+                except HttpError as exc:
+                    refused_type = isinstance(exc.response, dict) and "relation_type" in exc.response
+                    if exc.status_code == 400 and refused_type and relation_type in IMPLEMENTS_TYPES:
+                        return _NO_IMPLEMENTS.format(relation_type=relation_type)
+                    raise
                 return _created(created, targets)
             if relation_definition_id and relation_definition_label:
                 try:
