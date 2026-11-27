@@ -13,6 +13,9 @@ from plane_mcp.tools.legacy import LegacyNames
 
 logger = get_logger(__name__)
 
+# The skill tool tells an agent how to work: hiding it would leave the agent guessing.
+UNHIDEABLE = frozenset({"skill"})
+
 
 def disabled_from_env() -> frozenset[str]:
     """Tool names listed in `PLANE_MCP_DISABLED_TOOLS`, comma-separated."""
@@ -30,7 +33,11 @@ def register_tools(mcp: FastMCP, *, legacy_names: bool = True, disabled: Iterabl
     skip = disabled_from_env() if disabled is None else frozenset(disabled)
     if unknown := skip - {mod.NAME for mod in RESOURCES}:
         raise ValueError(f"PLANE_MCP_DISABLED_TOOLS names unknown tools: {', '.join(sorted(unknown))}")
-    active = [mod for mod in RESOURCES if mod.NAME not in skip]
+    if UNHIDEABLE & skip:
+        logger.warning("Plane MCP: %s can't be disabled; ignoring it", ", ".join(sorted(UNHIDEABLE & skip)))
+        skip -= UNHIDEABLE
+    # A resource may define `available()` to stay out when its configuration is absent.
+    active = [mod for mod in RESOURCES if mod.NAME not in skip and getattr(mod, "available", lambda: True)()]
 
     for mod in active:
         mod.register(mcp)

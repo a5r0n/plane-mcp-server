@@ -24,17 +24,26 @@ def _retired_name_of(tool: str) -> str:
     return next(legacy for legacy, (target, _) in alias_table().items() if target == tool)
 
 
+# Without PLANE_MCP_SKILLS_DIR the skill tool is not served at all.
+SERVED = [mod.NAME for mod in RESOURCES if mod.NAME != "skill"]
+
+
+@pytest.fixture(autouse=True)
+def _no_skills(monkeypatch):
+    monkeypatch.delenv("PLANE_MCP_SKILLS_DIR", raising=False)
+
+
 def test_unset_advertises_every_resource(monkeypatch):
     monkeypatch.delenv("PLANE_MCP_DISABLED_TOOLS", raising=False)
     mcp, count = _surface()
-    assert count == len(RESOURCES)
-    assert [t.name for t in _run(mcp.list_tools())] == [mod.NAME for mod in RESOURCES]
+    assert count == len(SERVED)
+    assert [t.name for t in _run(mcp.list_tools())] == SERVED
 
 
 def test_env_drops_the_named_tools_and_keeps_the_order(monkeypatch):
     monkeypatch.setenv("PLANE_MCP_DISABLED_TOOLS", " customer, release ,,")
     mcp, count = _surface()
-    expected = [mod.NAME for mod in RESOURCES if mod.NAME not in {"customer", "release"}]
+    expected = [name for name in SERVED if name not in {"customer", "release"}]
     assert count == len(expected)
     assert [t.name for t in _run(mcp.list_tools())] == expected
 

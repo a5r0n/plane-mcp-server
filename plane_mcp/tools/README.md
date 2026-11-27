@@ -1,6 +1,6 @@
 # The tool surface
 
-**33 tools**, one per Plane resource, each taking an `action` parameter that selects the operation. 227 actions in total.
+**33 tools**, one per Plane resource, each taking an `action` parameter that selects the operation. 227 actions in total. A 34th, `skill`, is served only when `PLANE_MCP_SKILLS_DIR` is set.
 
 ```python
 workitem(action="create", project_id=..., name="Fix login")
@@ -111,6 +111,7 @@ Where the workspace owns a resource outright, both directions of wrong-scope wri
 | `release` | `list` · `retrieve` · `create` · `update` · `delete` · `get_changelog` · `update_changelog` · `list_workitems` · `manage_workitems` |
 | `release_label` | `list` · `create` · `update` · `delete` · `attach` · `detach` |
 | `release_tag` | `list` · `retrieve` · `create` · `update` · `delete` |
+| `skill` | `list` · `get` |
 | `state` | `list` · `retrieve` · `create` · `update` · `delete` |
 | `template` | `list` · `create` · `update` · `delete` |
 | `work_log` | `list` · `create` · `update` · `delete` |

@@ -23,13 +23,18 @@ BACKTICKED = re.compile(r"`([a-z_]+)`")
 
 
 @pytest.fixture(scope="module")
-def surface():
-    """The catalogue and its registered tool names."""
+def surface(tmp_path_factory):
+    """The catalogue and its registered tool names, with the opt-in skill tool served."""
     from plane_mcp.tools import register_tools
     from plane_mcp.tools.registry import RESOURCES
+    from tests._skills import make_skill_set
 
-    mcp = FastMCP("docs")
-    register_tools(mcp, legacy_names=False)
+    root = tmp_path_factory.mktemp("skills")
+    make_skill_set(root, "a" * 40, {"squadron-plane": "Shared rules"})
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("PLANE_MCP_SKILLS_DIR", str(root))
+        mcp = FastMCP("docs")
+        register_tools(mcp, legacy_names=False)
     tools = asyncio.new_event_loop().run_until_complete(mcp.list_tools())
     return RESOURCES, {tool.name for tool in tools}
 
@@ -56,6 +61,9 @@ def test_the_main_readme_states_the_real_tool_count(surface):
     from plane_mcp.toolkit.spec import action_names
 
     resources, registered = surface
+    # The headline counts the default surface; the opt-in skill tool is documented on its own.
+    resources = [mod for mod in resources if mod.NAME != "skill"]
+    registered = registered - {"skill"}
     text = (ROOT / "README.md").read_text()
     actions = sum(len(action_names(mod.ACTIONS)) for mod in resources)
     assert f"**{len(registered)} tools**" in text, f"the README does not say {len(registered)} tools"

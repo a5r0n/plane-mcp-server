@@ -16,7 +16,8 @@ from plane_mcp.toolkit.governance import WORKSPACE_MANAGED
 from plane_mcp.toolkit.spec import action_names
 
 # Ratchets. Lowering these is routine; raising one is a design decision.
-LISTING_BUDGET_CHARS = 74_000
+LISTING_BUDGET_CHARS = 74_000  # the default listing, without the opt-in skill tool
+SKILL_BUDGET_CHARS = 1_000
 MAX_ADVERTISED_TOOLS = 35  # strictest published client cap is 40 -- leave headroom
 NAME_BUDGET = 46  # 64-char provider limit, less room for a client prefix
 UNMAPPED_BUDGET = 7  # retired tools that cannot be aliased; see the test for the shape
@@ -69,6 +70,7 @@ CATALOGUE = [
     "epic",
     "workitem_step",
     "custom_field",
+    "skill",
 ]
 
 
@@ -221,8 +223,14 @@ def test_tool_count_is_within_client_caps(listing):
 
 def test_listing_is_within_budget(listing):
     """Ratchet against re-bloat -- the surface growing back one merge at a time."""
-    payload = sum(len(json.dumps(tool, separators=(",", ":"))) for tool in listing)
+    payload = sum(len(json.dumps(tool, separators=(",", ":"))) for tool in listing if tool["name"] != "skill")
     assert payload <= LISTING_BUDGET_CHARS, f"listing is {payload} chars"
+
+
+def test_the_opt_in_skill_tool_is_within_its_own_budget(listing):
+    (skill,) = [tool for tool in listing if tool["name"] == "skill"]
+    payload = len(json.dumps(skill, separators=(",", ":")))
+    assert payload <= SKILL_BUDGET_CHARS, f"the skill tool is {payload} chars"
 
 
 def test_alias_targets_all_resolve(aliases, registered):

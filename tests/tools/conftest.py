@@ -13,6 +13,7 @@ os.environ.setdefault("PLANE_WORKSPACE_SLUG", "test")
 
 from plane_mcp.tools import register_tools as register_v2  # noqa: E402
 from plane_mcp.tools.registry import RESOURCES, alias_table, unmapped_table  # noqa: E402
+from tests._skills import make_skill_set  # noqa: E402
 
 from ._retired_names import RETIRED_TOOL_NAMES  # noqa: E402
 from ._spyclient import SpyClient  # noqa: E402
@@ -35,10 +36,20 @@ def resource_modules():
 
 
 @pytest.fixture(scope="session")
-def registered():
-    """Every tool as registered, keyed by name."""
-    mcp = FastMCP("conformance")
-    register_v2(mcp, legacy_names=False)
+def registered(tmp_path_factory):
+    """Every tool as registered, keyed by name, with skills served so the skill tool is among them."""
+    root = tmp_path_factory.mktemp("skills")
+    make_skill_set(root, "a" * 40, {"squadron-plane": "Shared rules"})
+    previous = os.environ.get("PLANE_MCP_SKILLS_DIR")
+    os.environ["PLANE_MCP_SKILLS_DIR"] = str(root)
+    try:
+        mcp = FastMCP("conformance")
+        register_v2(mcp, legacy_names=False)
+    finally:
+        if previous is None:
+            del os.environ["PLANE_MCP_SKILLS_DIR"]
+        else:
+            os.environ["PLANE_MCP_SKILLS_DIR"] = previous
     return {tool.name: tool for tool in _run(mcp.list_tools())}
 
 

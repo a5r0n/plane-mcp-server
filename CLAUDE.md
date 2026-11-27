@@ -85,7 +85,7 @@ Every call to a Plane origin also carries the MCP request's own `X-Client-Sessio
 
 ### Tools (`tools/`)
 
-One action-dispatch tool per Plane resource: **33 tools, 227 actions, ~74k chars advertised**. `tools/__init__.py` re-exports `register_tools`, so `server.py` and `__main__.py` see a single entry point.
+One action-dispatch tool per Plane resource: **33 tools, 227 actions, ~74k chars advertised**, plus `skill` (2 actions) with `PLANE_MCP_SKILLS_DIR`. `tools/__init__.py` re-exports `register_tools`, so `server.py` and `__main__.py` see a single entry point.
 
 One module per resource, each exporting `NAME`, `ACTIONS`, `LEGACY` and `register(mcp)`. `ACTIONS` is the single source of truth: the tool description and its `ToolAnnotations` are generated from it, and the conformance suite asserts they agree with the function signature. See `tools/README.md` for the full convention.
 
@@ -141,6 +141,7 @@ Integration tests in `tests/test_integration.py` use `FastMCP.Client` with `Stre
 | `REDIS_HOST` / `REDIS_PORT` | http/sse (optional) | Token storage (falls back to in-memory) |
 | `PLANE_OAUTH_PROVIDER_*` | http/sse OAuth | OAuth client credentials and base URL |
 | `PLANE_OAUTH_ALLOWED_REDIRECT_URIS` | http/sse OAuth (optional) | Comma-separated redirect URI patterns appended to the built-in allowlist (onboard clients without a release) |
-| `PLANE_MCP_DISABLED_TOOLS` | all (optional) | Comma-separated tool names to leave out, with their retired names; an unknown name fails startup |
+| `PLANE_MCP_DISABLED_TOOLS` | all (optional) | Comma-separated tool names to leave out, with their retired names; an unknown name fails startup; can't hide `skill` |
+| `PLANE_MCP_SKILLS_DIR` | all (optional) | Folder whose `current` symlink names the skill set to serve (`skill://` resources, the `skill` tool, one instructions line); resolved per request (`skills.py`) |
 | `LOG_USER_INFO` | all (optional, default: false) | When `true`, include user info (PII such as display name) in logs alongside the opaque user id |
 | `LOG_PAYLOADS` | all (optional, default: true) | Log request payloads.|
