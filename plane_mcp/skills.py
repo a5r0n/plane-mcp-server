@@ -104,7 +104,8 @@ def readable_skills(skill_set: SkillSet) -> dict[str, str]:
 
 def skill_file(skill_set: SkillSet, name: str, path: str = MAIN_FILE) -> Path:
     """The file `path` inside skill `name`; refuses anything that leaves the skill folder."""
-    folder = _contained(skill_set, name)
+    # Only an entry of the set is checked, so a caller's name never reaches the log.
+    folder = _contained(skill_set, name) if name in os.listdir(skill_set.path) else None
     if folder is None:
         raise SkillsUnavailable(f"no skill named {name!r}; skills: {', '.join(skill_names(skill_set))}")
     target = (folder / path).resolve()

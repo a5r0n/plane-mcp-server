@@ -320,6 +320,20 @@ def test_a_skill_that_cannot_be_checked_is_left_out_with_a_warning_naming_it(roo
     assert str(broken) in warnings.text
 
 
+@pytest.mark.parametrize("name", ["VERSION/x", "squadron-plane/SKILL.md/x", "x" * 300, "../../shut/x", "a\nINJECTED"])
+def test_a_name_that_is_not_in_the_set_logs_no_warning(root, warnings, name):
+    shut = root / "shut"
+    shut.mkdir()
+    shut.chmod(0)
+    try:
+        result = _text(_call(get_stdio_mcp(), action="get", name=name))
+    finally:
+        shut.chmod(0o755)
+
+    assert "no skill named" in result
+    assert warnings.text == ""
+
+
 def test_a_skill_md_linked_from_outside_the_set_is_not_served(root, tmp_path_factory):
     elsewhere = tmp_path_factory.mktemp("elsewhere") / "SKILL.md"
     elsewhere.write_text("---\ndescription: Elsewhere\n---\nelsewhere text\n")
