@@ -175,8 +175,12 @@ workitem_activity(action="list_workspace", since="2026-11-28T15:00:00Z", project
 ```
 
 `since` is inclusive. When `more` is true, call again with `since` set to the last
-row's `created_at` and skip ids already seen; do the same when re-reading a window,
-since a row can land a few seconds after its `created_at`.
+row's `created_at` and skip rows whose `id` and `created_at` you've already seen (a
+re-edited description keeps its `id` with a new `created_at`, so it counts as new).
+If a page brings nothing new while `more` is true, its rows all share one
+`created_at`: raise `per_page`. A row can land a few seconds after its
+`created_at`, so when polling, start each read a margin (say a minute) before the
+last row's `created_at` and skip what you've seen.
 
 ### Skills
 

@@ -9,7 +9,12 @@ from plane_mcp.middleware import ReadOnly
 
 SINCE = "2026-11-28T15:00:00Z"
 FEED = "acme/activities"
-ROW = {"id": "a-1", "field": "state", "issue_identifier": "SQUAD-1", "provenance": {"client_agent": "pilot"}}
+ROW = {
+    "id": "a-1",
+    "field": "state",
+    "issue_identifier": "ENG-42",
+    "provenance": {"channel": "api", "token": None, "session": "s-1", "agent": "pilot"},
+}
 
 
 def _call(registered, **arguments):
