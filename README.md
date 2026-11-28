@@ -7,7 +7,7 @@ work items, cycles, modules, releases, customers and more.
 Built on [FastMCP](https://github.com/jlowin/fastmcp) and the official
 [`plane-sdk`](https://pypi.org/project/plane-sdk/).
 
-- **33 tools**, one per Plane resource, covering 227 operations, plus an opt-in `skill` tool
+- **33 tools**, one per Plane resource, covering 228 operations, plus an opt-in `skill` tool
 - **Local or remote** — stdio, streamable HTTP, SSE
 - **OAuth or API key** authentication
 
@@ -162,6 +162,21 @@ workitem(action="list", project_id=..., pql='prop.risk = "high"')
 
 `null` clears a key. A rejected value comes back as an answer naming each key and
 why, and nothing is saved.
+
+### Workspace activity
+
+On a Plane build with a workspace activity feed (stock Community Edition has none),
+`workitem_activity` reads what changed across every project you're an active member
+of, oldest first:
+
+```python
+workitem_activity(action="list_workspace", since="2026-11-28T15:00:00Z", project_id="<id>,<id>",
+                  field="state,comment", agent="pilot", per_page=100)
+```
+
+`since` is inclusive. When `more` is true, call again with `since` set to the last
+row's `created_at` and skip ids already seen; do the same when re-reading a window,
+since a row can land a few seconds after its `created_at`.
 
 ### Skills
 

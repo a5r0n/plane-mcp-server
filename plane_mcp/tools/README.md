@@ -1,6 +1,6 @@
 # The tool surface
 
-**33 tools**, one per Plane resource, each taking an `action` parameter that selects the operation. 227 actions in total. A 34th, `skill`, is served only when `PLANE_MCP_SKILLS_DIR` is set.
+**33 tools**, one per Plane resource, each taking an `action` parameter that selects the operation. 228 actions in total. A 34th, `skill`, is served only when `PLANE_MCP_SKILLS_DIR` is set.
 
 ```python
 workitem(action="create", project_id=..., name="Fix login")
@@ -8,7 +8,7 @@ workitem(action="list", project_id=..., pql='state__group = "started"')
 cycle(action="archive", project_id=..., cycle_id=...)
 ```
 
-A compact catalogue — 33 tools, ~74k characters — loads fully in every MCP client and leaves the context budget to the conversation.
+A compact catalogue — 33 tools, ~75k characters — loads fully in every MCP client and leaves the context budget to the conversation.
 
 Five parts, in this order:
 
@@ -116,7 +116,7 @@ Where the workspace owns a resource outright, both directions of wrong-scope wri
 | `template` | `list` · `create` · `update` · `delete` |
 | `work_log` | `list` · `create` · `update` · `delete` |
 | `workitem` | `list` · `list_archived` · `retrieve` · `retrieve_by_identifier` · `search` · `count` · `create` · `update` · `delete` · `archive` · `manage_assignee` · `manage_label` |
-| `workitem_activity` | `list` · `retrieve` |
+| `workitem_activity` | `list` · `retrieve` · `list_workspace` |
 | `workitem_attachment` | `list` · `read` · `download_url` · `upload_from_url` · `upload_begin` · `upload_complete` · `delete` |
 | `workitem_comment` | `list` · `retrieve` · `create` · `update` · `delete` |
 | `workitem_link` | `list` · `retrieve` · `create` · `update` · `delete` |
