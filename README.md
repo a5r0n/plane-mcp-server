@@ -7,7 +7,7 @@ work items, cycles, modules, releases, customers and more.
 Built on [FastMCP](https://github.com/jlowin/fastmcp) and the official
 [`plane-sdk`](https://pypi.org/project/plane-sdk/).
 
-- **33 tools**, one per Plane resource, covering 227 operations, plus an opt-in `skill` tool
+- **33 tools**, one per Plane resource, covering 228 operations, plus an opt-in `skill` tool
 - **Local or remote** — stdio, streamable HTTP, SSE
 - **OAuth or API key** authentication
 
@@ -162,6 +162,27 @@ workitem(action="list", project_id=..., pql='prop.risk = "high"')
 
 `null` clears a key. A rejected value comes back as an answer naming each key and
 why, and nothing is saved.
+
+### Workspace activity
+
+On a Plane build with a workspace activity feed (stock Community Edition has none),
+`workitem_activity` reads what changed across every project you're an active member
+of, oldest first:
+
+```python
+workitem_activity(action="list_workspace", since="2026-11-28T15:00:00Z", project_id="<id>,<id>",
+                  field="state,comment", agent="pilot", per_page=100)
+```
+
+`since` is inclusive. While `more` is true, call again with `since` set to the last
+row's `created_at`, even when a page held nothing new, and skip rows whose `id` and
+`created_at` you've already seen (a re-edited description keeps its `id` with a new
+`created_at`, so it counts as new). Only if the last row's `created_at` equals the
+`since` you just sent are all its rows tied on one time: raise `per_page` (up to 100).
+
+A row can land a few seconds after its `created_at`. When polling, start each poll's
+first call a margin (say a minute) before the last `created_at` you saw; page on
+from there as above.
 
 ### Skills
 
