@@ -174,13 +174,15 @@ workitem_activity(action="list_workspace", since="2026-11-28T15:00:00Z", project
                   field="state,comment", agent="pilot", per_page=100)
 ```
 
-`since` is inclusive. When `more` is true, call again with `since` set to the last
-row's `created_at` and skip rows whose `id` and `created_at` you've already seen (a
-re-edited description keeps its `id` with a new `created_at`, so it counts as new).
-If a page brings nothing new while `more` is true, its rows all share one
-`created_at`: raise `per_page`. A row can land a few seconds after its
-`created_at`, so when polling, start each read a margin (say a minute) before the
-last row's `created_at` and skip what you've seen.
+`since` is inclusive. While `more` is true, call again with `since` set to the last
+row's `created_at`, even when a page held nothing new, and skip rows whose `id` and
+`created_at` you've already seen (a re-edited description keeps its `id` with a new
+`created_at`, so it counts as new). Only if the last row's `created_at` equals the
+`since` you just sent are all its rows tied on one time: raise `per_page` (up to 100).
+
+A row can land a few seconds after its `created_at`. When polling, start each poll's
+first call a margin (say a minute) before the last `created_at` you saw; page on
+from there as above.
 
 ### Skills
 

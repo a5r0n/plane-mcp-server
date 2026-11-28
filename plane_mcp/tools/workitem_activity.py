@@ -28,8 +28,8 @@ ACTIONS = (
 
 FOOTER = (
     "list_workspace: oldest first, per_page up to 100; project_id, field and agent take comma lists. since is "
-    "inclusive: to continue, call again with since set to the last row's created_at and skip rows whose id and "
-    "created_at you've seen; if a page brings nothing new while more is true, raise per_page."
+    "inclusive: while more is true, call again with since set to the last row's created_at (even if nothing was "
+    "new) and skip rows whose id and created_at you've seen; raise per_page only if that equals the since you sent."
 )
 
 LEGACY = {
